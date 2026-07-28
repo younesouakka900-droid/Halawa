@@ -681,6 +681,15 @@ function openVideoLightbox(url){
     else embed = `<a href="${url}" target="_blank" style="color:#e8c579;">فتح الفيديو</a>`;
     openLightbox(embed); return;
   }
+  if(url.includes('drive.google.com')){
+    const idMatch = url.match(/\/d\/([\w-]+)/) || url.match(/[?&]id=([\w-]+)/);
+    if(idMatch){
+      openLightbox(`<iframe src="https://drive.google.com/file/d/${idMatch[1]}/preview" allow="autoplay" allowfullscreen></iframe>`);
+    } else {
+      openLightbox(`<a href="${url}" target="_blank" style="color:#e8c579;">فتح الفيديو</a>`);
+    }
+    return;
+  }
   openLightbox(`<video src="${url}" controls autoplay></video>`);
 }
 
