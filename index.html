@@ -263,7 +263,8 @@
     <div class="footer-links" id="footer-links"></div>
     <div>
       <div style="font-size:13px;color:var(--text-faint);margin-bottom:8px;">اشتراك النشرة البريدية</div>
-      <div class="subscribe"><button>اشترك الآن</button><input type="email" placeholder="بريدك الإلكتروني"></div>
+      <div class="subscribe"><button onclick="subscribeNewsletter()">اشترك الآن</button><input type="email" id="newsletter-email" placeholder="بريدك الإلكتروني"></div>
+      <div class="settings-msg" id="newsletter-msg" style="margin-top:8px;"></div>
     </div>
   </div>
 </footer>
@@ -286,6 +287,10 @@
     </div>
     <div class="detail-content" id="detail-content"></div>
     <div class="share-row" id="detail-share"></div>
+    <div class="related-section" id="related-section" style="margin-top:36px;">
+      <h3 style="color:var(--gold-bright);margin-bottom:16px;">قد يعجبك أيضاً</h3>
+      <div class="grid-3" id="related-grid"></div>
+    </div>
     <div class="comments-section">
       <h3 style="color:var(--gold-bright);margin-bottom:16px;">التعليقات</h3>
       <div class="comment-form">
@@ -333,6 +338,7 @@
       <button class="admin-tab" data-tab="hero" onclick="switchTab('hero')">🌅 البانر الرئيسي</button>
       <button class="admin-tab" data-tab="header" onclick="switchTab('header')">🔖 الهيدر والقائمة</button>
       <button class="admin-tab" data-tab="footer" onclick="switchTab('footer')">🦶 الفوتر</button>
+      <button class="admin-tab" data-tab="newsletter" onclick="switchTab('newsletter')">📧 النشرة البريدية</button>
       <button class="admin-tab" data-tab="settings" onclick="switchTab('settings')">⚙️ الإعدادات</button>
     </div>
     <div class="admin-panel">
@@ -418,7 +424,7 @@ function openLogin(mode){ loginMode = mode; showView('login'); }
 
 /* ---------------- Admin auth ---------------- */
 function doLogin(){
-  const u = document.getElementById('login-user').value.trim();
+  const u = document.getElementById('login-user').value.trim().toLowerCase();
   const p = document.getElementById('login-pass').value;
   const err = document.getElementById('login-error');
   if(u===ADMIN_USER && p===getAdminPass()){
@@ -471,7 +477,7 @@ function renderLoginCard(mode){
     card.innerHTML = `
       <span class="logo">خلاوة</span>
       <p>دخول الأدمن فقط لإدارة محتوى الموقع</p>
-      <div class="field"><label>اسم المستخدم</label><input type="text" id="login-user" placeholder="admin"></div>
+      <div class="field"><label>اسم المستخدم</label><input type="text" id="login-user" placeholder="admin" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
       <div class="field"><label>كلمة المرور</label><input type="password" id="login-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()"></div>
       <button class="btn-gold" onclick="doLogin()">دخول</button>
       <div class="login-error" id="login-error"></div>
@@ -605,16 +611,49 @@ function submitComment(type,id){
 }
 
 /* ---------------- Detail view ---------------- */
+function getViews(type,id){
+  const all = JSON.parse(localStorage.getItem('halawa_views')||'{}');
+  return all[type+':'+id] || 0;
+}
+function incrementViews(type,id){
+  const all = JSON.parse(localStorage.getItem('halawa_views')||'{}');
+  const key = type+':'+id;
+  all[key] = (all[key]||0) + 1;
+  localStorage.setItem('halawa_views', JSON.stringify(all));
+  return all[key];
+}
+function renderRelated(type,id,tagOrCategory){
+  const pool = [
+    ...getData('stories').map(i=>({...i,_type:'stories'})),
+    ...getData('articles').map(i=>({...i,_type:'articles'}))
+  ].filter(i=>!(i._type===type && i.id===id));
+  const key = i => i.tag || i.category || '';
+  let related = pool.filter(i=>key(i)===tagOrCategory);
+  if(related.length < 3){
+    const rest = pool.filter(i=>!related.includes(i));
+    related = related.concat(rest).slice(0,3);
+  } else {
+    related = related.slice(0,3);
+  }
+  document.getElementById('related-grid').innerHTML = related.length ? related.map(r=>`
+    <div class="story-card" onclick="openDetail('${r._type}',${r.id})">
+      <div class="thumb"><img src="${r.image}" alt=""></div>
+      <div class="body"><h3>${r.title}</h3></div>
+    </div>`).join('') : '';
+}
 function openDetail(type, id){
   const item = getData(type).find(i=>i.id===id);
   if(!item) return;
   currentDetail = {type, id};
+  const views = incrementViews(type,id);
   document.getElementById('detail-image').src = item.image;
   document.getElementById('detail-title').innerHTML = item.title;
   document.getElementById('detail-tag').textContent = item.tag || item.category || '';
-  document.getElementById('detail-meta').textContent = item.readTime || (item.author ? 'بقلم '+item.author : '');
+  const metaBits = [item.readTime || (item.author ? 'بقلم '+item.author : ''), `👁️ ${views} مشاهدة`].filter(Boolean);
+  document.getElementById('detail-meta').textContent = metaBits.join(' · ');
   document.getElementById('detail-content').textContent = item.content || item.excerpt || '';
   renderShareButtons(item.title);
+  renderRelated(type, id, item.tag || item.category || '');
   renderComments(type,id);
   showView('detail');
   updateDetailHeart(type,id);
@@ -628,7 +667,13 @@ function openLightbox(html){
 function closeLightbox(){ document.getElementById('lightbox').style.display = 'none'; document.getElementById('lightbox-content').innerHTML=''; }
 function openGalleryLightbox(src){ openLightbox(`<img src="${src}" alt="">`); }
 function openVideoLightbox(url){
-  if(!url){ alert('لم يتم إضافة رابط فيديو من لوحة الأدمن بعد.'); return; }
+  if(!url){
+    openLightbox(`<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;padding:40px 50px;text-align:center;max-width:340px;">
+      <div style="font-size:34px;margin-bottom:14px;">🎬</div>
+      <p style="color:var(--text-dim);font-size:15px;">هذا الفيديو غير متوفر حالياً</p>
+    </div>`);
+    return;
+  }
   let embed = url;
   if(url.includes('youtube.com') || url.includes('youtu.be')){
     const idMatch = url.match(/(?:v=|youtu\.be\/)([\w-]+)/);
@@ -773,6 +818,7 @@ function switchTab(tab){
   if(tab==='hero') return renderHeroForm();
   if(tab==='header') return renderHeaderForm();
   if(tab==='footer') return renderFooterForm();
+  if(tab==='newsletter') return renderNewsletterForm();
   if(tab==='settings') return renderSettingsForm();
   renderAdminForm();
   renderAdminList();
@@ -856,6 +902,48 @@ function saveFooter(){
     }
   });
   alert('تم حفظ الفوتر بنجاح');
+}
+
+/* ---------------- Newsletter ---------------- */
+function subscribeNewsletter(){
+  const input = document.getElementById('newsletter-email');
+  const msg = document.getElementById('newsletter-msg');
+  const email = input.value.trim().toLowerCase();
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if(!re.test(email)){ msg.style.color='var(--danger)'; msg.textContent='الرجاء إدخال بريد إلكتروني صحيح'; return; }
+  const list = JSON.parse(localStorage.getItem('halawa_newsletter')||'[]');
+  if(list.includes(email)){ msg.style.color='var(--gold-bright)'; msg.textContent='أنت مشترك بالفعل!'; return; }
+  list.push(email);
+  localStorage.setItem('halawa_newsletter', JSON.stringify(list));
+  msg.style.color='var(--gold-bright)'; msg.textContent='تم الاشتراك بنجاح، شكراً لك!';
+  input.value = '';
+}
+function renderNewsletterForm(){
+  const list = JSON.parse(localStorage.getItem('halawa_newsletter')||'[]');
+  document.getElementById('admin-form').innerHTML = `
+    <h3>مشتركو النشرة البريدية (${list.length})</h3>
+    <div class="form-actions">
+      <button class="btn-secondary" onclick="exportNewsletter()">⬇ تصدير CSV</button>
+    </div>`;
+  document.getElementById('admin-list').innerHTML = list.length ? list.map(email=>`
+    <div class="item-row">
+      <div class="info"><h4>${email}</h4></div>
+      <div class="actions"><button class="icon-action del" onclick="deleteSubscriber('${email}')">✕</button></div>
+    </div>`).join('') : '<div class="empty-note">لا يوجد مشتركين بعد</div>';
+}
+function deleteSubscriber(email){
+  if(!confirm('هل تريد حذف هذا المشترك؟')) return;
+  const list = JSON.parse(localStorage.getItem('halawa_newsletter')||'[]').filter(e=>e!==email);
+  localStorage.setItem('halawa_newsletter', JSON.stringify(list));
+  renderNewsletterForm();
+}
+function exportNewsletter(){
+  const list = JSON.parse(localStorage.getItem('halawa_newsletter')||'[]');
+  const blob = new Blob([['البريد الإلكتروني', ...list].join('\n')], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'halawa-newsletter.csv';
+  a.click();
 }
 
 function renderSettingsForm(){
