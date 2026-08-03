@@ -89,11 +89,17 @@
   .video-caption{position:absolute;bottom:14px;right:16px;text-align:right;}
   .video-caption h4{font-size:14px;font-weight:700;color:var(--text);}
   .video-caption span{font-size:11px;color:var(--text-dim);}
+  .video-card.portrait{aspect-ratio:9/16;height:auto;max-width:230px;margin:0 auto;}
+  @media(max-width:760px){ .video-card.portrait{max-width:180px;} }
 
   .gallery-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
   .gallery-item{position:relative;border-radius:12px;overflow:hidden;height:140px;cursor:pointer;}
+  .gallery-caption{position:absolute;bottom:0;right:0;left:0;padding:8px 10px 6px;font-size:12px;color:var(--text);background:linear-gradient(to top,rgba(10,8,6,.85),transparent);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
   .no-results{color:var(--text-faint);font-size:14px;padding:10px 0;grid-column:1/-1;}
+  .ad-slot{display:flex;flex-direction:column;align-items:center;gap:8px;margin:36px auto;max-width:1280px;padding:0 32px;}
+  .ad-label{font-size:10px;letter-spacing:1px;color:var(--text-faint);text-transform:uppercase;}
+  .native-ad-slot{margin:28px 0;padding:16px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);}
 
   footer{margin-top:70px;border-top:1px solid var(--border);padding:40px 32px;}
   .footer-inner{max-width:1280px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:24px;}
@@ -199,6 +205,8 @@
   #lightbox{position:fixed;inset:0;background:rgba(10,8,6,.92);z-index:100;display:none;align-items:center;justify-content:center;padding:30px;}
   #lightbox img,#lightbox video,#lightbox iframe{max-width:90vw;max-height:85vh;border-radius:12px;display:block;}
   #lightbox iframe{width:80vw;height:70vh;border:none;}
+  #lightbox iframe.portrait{width:min(400px,90vw);height:85vh;}
+  #lightbox video.portrait{width:auto;height:85vh;max-width:90vw;}
   .lightbox-close{position:absolute;top:24px;left:32px;color:var(--gold-bright);font-size:26px;background:none;border:none;}
 </style>
 </head>
@@ -241,6 +249,22 @@
   <h2 class="section-title">مقالات حديثة</h2>
   <div class="recent-grid" id="articles-grid"></div>
 </section>
+
+<div class="ad-slot">
+  <span class="ad-label">إعلان</span>
+  <div id="ad-banner-160x600">
+    <script>
+      atOptions = {
+        'key' : '1a7610707a6fa843347156e918ee63ed',
+        'format' : 'iframe',
+        'height' : 600,
+        'width' : 160,
+        'params' : {}
+      };
+    </script>
+    <script src="https://www.highperformanceformat.com/1a7610707a6fa843347156e918ee63ed/invoke.js"></script>
+  </div>
+</div>
 
 <section>
   <h2 class="section-title">الأكثر تفاعلاً على الأسبوع</h2>
@@ -286,6 +310,11 @@
       <button class="heart-btn detail-heart" id="detail-heart-btn" onclick="toggleFavorite(currentDetail.type, currentDetail.id, event)">♥</button>
     </div>
     <div class="detail-content" id="detail-content"></div>
+    <div class="native-ad-slot">
+      <span class="ad-label">إعلان</span>
+      <div id="container-4a34a1da9db90a9a7003c2bc50cd86c6"></div>
+      <script async="async" data-cfasync="false" src="https://pl30655093.effectivecpmnetwork.com/4a34a1da9db90a9a7003c2bc50cd86c6/invoke.js"></script>
+    </div>
     <div class="share-row" id="detail-share"></div>
     <div class="related-section" id="related-section" style="margin-top:36px;">
       <h3 style="color:var(--gold-bright);margin-bottom:16px;">قد يعجبك أيضاً</h3>
@@ -665,7 +694,10 @@ function openLightbox(html){
   document.getElementById('lightbox').style.display = 'flex';
 }
 function closeLightbox(){ document.getElementById('lightbox').style.display = 'none'; document.getElementById('lightbox-content').innerHTML=''; }
-function openGalleryLightbox(src){ openLightbox(`<img src="${src}" alt="">`); }
+function openGalleryLightbox(src, caption){
+  const capHtml = caption ? `<p style="color:var(--text);font-size:15px;text-align:center;margin-top:14px;max-width:90vw;">${caption}</p>` : '';
+  openLightbox(`<div style="display:flex;flex-direction:column;align-items:center;"><img src="${src}" alt="">${capHtml}</div>`);
+}
 function openVideoLightbox(url){
   if(!url){
     openLightbox(`<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;padding:40px 50px;text-align:center;max-width:340px;">
@@ -676,8 +708,9 @@ function openVideoLightbox(url){
   }
   let embed = url;
   if(url.includes('youtube.com') || url.includes('youtu.be')){
-    const idMatch = url.match(/(?:v=|youtu\.be\/)([\w-]+)/);
-    if(idMatch) embed = `<iframe src="https://www.youtube.com/embed/${idMatch[1]}" allowfullscreen></iframe>`;
+    const isShorts = url.includes('/shorts/');
+    const idMatch = url.match(/(?:v=|youtu\.be\/|shorts\/)([\w-]+)/);
+    if(idMatch) embed = `<iframe class="${isShorts?'portrait':''}" src="https://www.youtube.com/embed/${idMatch[1]}" allowfullscreen></iframe>`;
     else embed = `<a href="${url}" target="_blank" style="color:#e8c579;">فتح الفيديو</a>`;
     openLightbox(embed); return;
   }
@@ -691,6 +724,12 @@ function openVideoLightbox(url){
     return;
   }
   openLightbox(`<video src="${url}" controls autoplay></video>`);
+  const vEl = document.querySelector('#lightbox-content video');
+  if(vEl){
+    vEl.addEventListener('loadedmetadata', ()=>{
+      if(vEl.videoHeight > vEl.videoWidth) vEl.classList.add('portrait');
+    });
+  }
 }
 
 /* ---------------- Search ---------------- */
@@ -762,16 +801,30 @@ function renderPublic(query){
 
   const videos = getData('videos');
   document.getElementById('videos-grid').innerHTML = videos.map(v=>`
-    <div class="video-card" onclick="openVideoLightbox('${(v.videoUrl||'').replace(/'/g,"\\'")}')">
+    <div class="video-card" id="vcard-${v.id}" onclick="openVideoLightbox('${(v.videoUrl||'').replace(/'/g,"\\'")}')">
       <img src="${v.image}" alt="">
       <span class="play-btn">▶</span>
       <span class="duration-tag">${v.duration}</span>
       <div class="video-caption"><h4>${v.title}</h4><span>${v.category}</span></div>
     </div>`).join('');
+  videos.forEach(v=>{
+    if(!v.image) return;
+    const probe = new Image();
+    probe.onload = ()=>{
+      if(probe.naturalHeight > probe.naturalWidth){
+        const card = document.getElementById('vcard-'+v.id);
+        if(card) card.classList.add('portrait');
+      }
+    };
+    probe.src = v.image;
+  });
 
   const gallery = getData('gallery');
   document.getElementById('gallery-grid').innerHTML = gallery.map(g=>`
-    <div class="gallery-item" onclick="openGalleryLightbox('${g.image}')"><img src="${g.image}" alt=""></div>`).join('');
+    <div class="gallery-item" onclick="openGalleryLightbox('${(g.image||'').replace(/'/g,"\\'")}','${(g.caption||'').replace(/'/g,"\\'")}')">
+      <img src="${g.image}" alt="">
+      ${g.caption ? `<div class="gallery-caption">${g.caption}</div>` : ''}
+    </div>`).join('');
 }
 
 /* ---------------- Admin CRUD config ---------------- */
@@ -805,15 +858,18 @@ const TAB_CONFIG = {
       {key:'title',label:'العنوان',type:'text',full:true},
       {key:'category',label:'التصنيف',type:'text'},
       {key:'duration',label:'المدة (مثال 0:30)',type:'text'},
-      {key:'videoUrl',label:'رابط الفيديو (يوتيوب أو mp4)',type:'text'},
+      {key:'videoUrl',label:'الفيديو (رابط يوتيوب/درايف أو ارفع ملف من جهازك)',type:'video'},
       {key:'image',label:'صورة الغلاف',type:'image',full:true}
     ],
     titleKey:'title', subKey:'duration'
   },
   gallery: {
     label:'معرض الفنون',
-    fields:[{key:'image',label:'الصورة',type:'image',full:true}],
-    titleKey:'image', subKey:null
+    fields:[
+      {key:'image',label:'الصورة (يدعم GIF, PNG, JPG, WEBP...)',type:'image',full:true},
+      {key:'caption',label:'نص مرافق (اختياري — اتركه فارغاً لنشر الصورة وحدها)',type:'textarea',full:true}
+    ],
+    titleKey:'caption', subKey:null
   }
 };
 
@@ -843,6 +899,24 @@ function imageFieldHTML(id, value){
 function handleImageUpload(event, targetId){
   const file = event.target.files[0];
   if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e => { document.getElementById(targetId).value = e.target.result; };
+  reader.readAsDataURL(file);
+}
+
+/* video field helper: text input (رابط) + file upload -> base64، مع دعم الفيديو العمودي (شورتس) تلقائياً */
+function videoFieldHTML(id, value){
+  return `<div class="file-row">
+    <input type="text" id="${id}" value="${(value||'').replace(/"/g,'&quot;')}" placeholder="رابط الفيديو (يوتيوب/درايف) أو ارفع ملف mp4 من جهازك" style="flex:1;">
+    <input type="file" accept="video/*" onchange="handleVideoUpload(event,'${id}')">
+  </div>`;
+}
+function handleVideoUpload(event, targetId){
+  const file = event.target.files[0];
+  if(!file) return;
+  if(file.size > 15*1024*1024){
+    alert('الفيديو كبير (أكثر من 15 ميجا) — قد يبطّئ الموقع. يفضّل رفعه على يوتيوب ولصق الرابط بدل الرفع المباشر.');
+  }
   const reader = new FileReader();
   reader.onload = e => { document.getElementById(targetId).value = e.target.result; };
   reader.readAsDataURL(file);
@@ -1025,6 +1099,7 @@ function renderAdminForm(){
       ${cfg.fields.map(f=>{
         const val = item ? (item[f.key]||'') : '';
         if(f.type==='image') return `<div class="field ${f.full?'full':''}"><label>${f.label}</label>${imageFieldHTML('f-'+f.key, val)}</div>`;
+        if(f.type==='video') return `<div class="field ${f.full?'full':''}"><label>${f.label}</label>${videoFieldHTML('f-'+f.key, val)}</div>`;
         if(f.type==='textarea') return `<div class="field ${f.full?'full':''}"><label>${f.label}</label><textarea id="f-${f.key}">${val}</textarea></div>`;
         return `<div class="field ${f.full?'full':''}"><label>${f.label}</label><input type="text" id="f-${f.key}" value="${val.toString().replace(/"/g,'&quot;')}"></div>`;
       }).join('')}
@@ -1085,6 +1160,19 @@ function renderAdminList(){
 
 /* ---------------- Init ---------------- */
 renderPublic();
+</script>
+
+<!-- Adsterra: Social Bar (SocialBar_1) - يخدم في كامل الموقع -->
+<script src="https://pl30655092.effectivecpmnetwork.com/17/f8/29/17f829297d23d0752d48f5c582182401.js"></script>
+
+<!-- Adsterra: Popunder (رابط مباشر) - كيفتح مرة وحدة فـ أول ضغطة على الصفحة -->
+<script>
+(function(){
+  document.addEventListener('click', function popunderOnce(){
+    window.open('https://www.effectivecpmnetwork.com/vnar6pxvh?key=29317dc3284f55434f2269e5a91be0d3');
+    document.removeEventListener('click', popunderOnce);
+  }, {once:true});
+})();
 </script>
 </body>
 </html>
