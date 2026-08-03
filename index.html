@@ -95,6 +95,12 @@
   .gallery-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
   .gallery-item{position:relative;border-radius:12px;overflow:hidden;height:140px;cursor:pointer;}
   .gallery-caption{position:absolute;bottom:0;right:0;left:0;padding:8px 10px 6px;font-size:12px;color:var(--text);background:linear-gradient(to top,rgba(10,8,6,.85),transparent);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .album-card{position:relative;}
+  .album-card .album-name{position:absolute;bottom:0;right:0;left:0;padding:10px;font-size:13px;font-weight:700;color:var(--text);background:linear-gradient(to top,rgba(10,8,6,.9),transparent);text-align:right;}
+  .album-card .album-count{position:absolute;top:8px;left:8px;background:rgba(10,8,6,.75);color:var(--gold-bright);font-size:10px;padding:3px 8px;border-radius:20px;}
+  .video-thumb{position:relative;background:#000;}
+  .video-thumb video{width:100%;height:100%;object-fit:cover;}
+  .video-thumb .play-btn{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:22px;color:var(--gold-bright);text-shadow:0 2px 6px rgba(0,0,0,.7);}
 
   .no-results{color:var(--text-faint);font-size:14px;padding:10px 0;grid-column:1/-1;}
   .ad-slot{display:flex;flex-direction:column;align-items:center;gap:8px;margin:36px auto;max-width:1280px;padding:0 32px;}
@@ -281,6 +287,11 @@
   <div class="gallery-grid" id="gallery-grid"></div>
 </section>
 
+<section>
+  <h2 class="section-title">الألبومات الشخصية</h2>
+  <div class="gallery-grid" id="albums-grid"></div>
+</section>
+
 <footer>
   <div class="footer-inner">
     <div class="social" id="footer-social"></div>
@@ -332,6 +343,16 @@
   </div>
 </div>
 
+<!-- ===================== ALBUM VIEW ===================== -->
+<div id="view-album" style="display:none;">
+  <a class="detail-back" href="#" onclick="showView('public');return false;">→ العودة للرئيسية</a>
+  <div class="detail-body">
+    <h1 id="album-title" style="color:var(--gold-bright);margin-bottom:6px;"></h1>
+    <p id="album-count" style="color:var(--text-dim);font-size:13px;margin-bottom:22px;"></p>
+    <div class="gallery-grid" id="album-photos-grid"></div>
+  </div>
+</div>
+
 <!-- ===================== ACCOUNT VIEW ===================== -->
 <div id="view-account" style="display:none;">
   <a class="detail-back" href="#" onclick="showView('public');return false;">→ العودة للرئيسية</a>
@@ -364,6 +385,7 @@
       <button class="admin-tab" data-tab="articles" onclick="switchTab('articles')">📰 المقالات</button>
       <button class="admin-tab" data-tab="videos" onclick="switchTab('videos')">🎬 الفيديو</button>
       <button class="admin-tab" data-tab="gallery" onclick="switchTab('gallery')">🖼️ المعرض</button>
+      <button class="admin-tab" data-tab="albums" onclick="switchTab('albums')">📂 الألبومات الشخصية</button>
       <button class="admin-tab" data-tab="hero" onclick="switchTab('hero')">🌅 البانر الرئيسي</button>
       <button class="admin-tab" data-tab="header" onclick="switchTab('header')">🔖 الهيدر والقائمة</button>
       <button class="admin-tab" data-tab="footer" onclick="switchTab('footer')">🦶 الفوتر</button>
@@ -410,6 +432,7 @@ const DEFAULTS = {
     {id:3,image:'https://picsum.photos/seed/art-3/300/300'},{id:4,image:'https://picsum.photos/seed/art-4/300/300'},
     {id:5,image:'https://picsum.photos/seed/art-5/300/300'},{id:6,image:'https://picsum.photos/seed/art-6/300/300'}
   ],
+  albums: [],
   hero: {
     title:'رحلة البحث عن<br>النجوم الضائعة',
     subtitle:'قصة غامرة تأخذك إلى قلب الصحراء والذات، في رحلة لا تُنسى بين الرمال والنجوم.',
@@ -440,7 +463,7 @@ let currentDetail = {type:null, id:null};
 let loginMode = 'reader-login';
 
 function showView(name){
-  ['public','login','admin','detail','account'].forEach(v=>{
+  ['public','login','admin','detail','account','album'].forEach(v=>{
     document.getElementById('view-'+v).style.display = (v===name) ? '' : 'none';
   });
   if(name==='public') renderPublic();
@@ -825,6 +848,47 @@ function renderPublic(query){
       <img src="${g.image}" alt="">
       ${g.caption ? `<div class="gallery-caption">${g.caption}</div>` : ''}
     </div>`).join('');
+
+  const albums = getData('albums');
+  document.getElementById('albums-grid').innerHTML = albums.length ? albums.map(a=>{
+    const firstImg = (a.photos||[]).find(p=>(p.type||'image')==='image');
+    const cover = a.cover || (firstImg ? (firstImg.src||firstImg.image) : '');
+    return `<div class="gallery-item album-card" onclick="openAlbum(${a.id})">
+      ${cover ? `<img src="${cover}" alt="">` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1410;color:var(--gold-bright);font-size:24px;">📂</div>`}
+      <span class="album-count">${(a.photos||[]).length}</span>
+      <div class="album-name">${a.name}</div>
+    </div>`;
+  }).join('') : '<div class="no-results">لا يوجد ألبومات بعد</div>';
+}
+
+function isDirectVideoSrc(src){
+  return !!src && (src.startsWith('data:video') || /\.(mp4|webm|ogg|mov)(\?|$)/i.test(src));
+}
+
+function openAlbum(id){
+  const album = getData('albums').find(a=>a.id===id);
+  if(!album) return;
+  document.getElementById('album-title').textContent = album.name;
+  document.getElementById('album-count').textContent = `${(album.photos||[]).length} عنصر`;
+  document.getElementById('album-photos-grid').innerHTML = (album.photos||[]).length ? album.photos.map(p=>{
+    const type = p.type || 'image';
+    const src = p.src || p.image || '';
+    const caption = p.caption || '';
+    const capHtml = caption ? `<div class="gallery-caption">${caption}</div>` : '';
+    if(type==='video'){
+      const escSrc = src.replace(/'/g,"\\'");
+      const thumb = isDirectVideoSrc(src)
+        ? `<video src="${src}" muted preload="metadata"></video>`
+        : `<div style="width:100%;height:100%;background:linear-gradient(135deg,#2a1f14,#1a1410);"></div>`;
+      return `<div class="gallery-item video-thumb" onclick="openVideoLightbox('${escSrc}')">
+        ${thumb}<span class="play-btn">▶</span>${capHtml}
+      </div>`;
+    }
+    return `<div class="gallery-item" onclick="openGalleryLightbox('${src.replace(/'/g,"\\'")}','${caption.replace(/'/g,"\\'")}')">
+      <img src="${src}" alt="">${capHtml}
+    </div>`;
+  }).join('') : '<div class="no-results">لا يوجد محتوى بهاد الألبوم بعد</div>';
+  showView('album');
 }
 
 /* ---------------- Admin CRUD config ---------------- */
@@ -885,6 +949,7 @@ function switchTab(tab){
   if(tab==='footer') return renderFooterForm();
   if(tab==='newsletter') return renderNewsletterForm();
   if(tab==='settings') return renderSettingsForm();
+  if(tab==='albums'){ albumsCurrentView = null; albumEditingId = null; return renderAlbumsAdmin(); }
   renderAdminForm();
   renderAdminList();
 }
@@ -1156,6 +1221,128 @@ function renderAdminList(){
         <button class="icon-action del" onclick="deleteItem(${item.id})">✕</button>
       </div>
     </div>`).join('');
+}
+
+/* ---------------- Albums (نظام الألبومات الشخصية) ---------------- */
+let albumsCurrentView = null; // null = قائمة الألبومات، أو id الألبوم المفتوح لإدارة صوره
+let albumEditingId = null; // id الألبوم اللي كنعدلو اسمه/غلافه، null = ألبوم جديد
+
+function renderAlbumsAdmin(){
+  if(albumsCurrentView !== null) return renderAlbumPhotosAdmin(albumsCurrentView);
+  const albums = getData('albums');
+  const editing = albumEditingId !== null;
+  const item = editing ? albums.find(a=>a.id===albumEditingId) : null;
+  document.getElementById('admin-form').innerHTML = `
+    <h3>${editing ? 'تعديل الألبوم' : 'إنشاء ألبوم جديد'}</h3>
+    <div class="form-grid">
+      <div class="field full"><label>اسم الألبوم</label><input type="text" id="al-name" value="${item ? item.name.replace(/"/g,'&quot;') : ''}"></div>
+      <div class="field full"><label>صورة الغلاف (اختياري — إذا تركتها فارغة تنعرض أول صورة من الألبوم)</label>${imageFieldHTML('al-cover', item ? item.cover : '')}</div>
+    </div>
+    <div class="form-actions">
+      <button class="btn-gold" style="padding:11px 26px;" onclick="saveAlbum()">${editing ? 'حفظ التعديل' : 'إنشاء الألبوم'}</button>
+      ${editing ? `<button class="btn-secondary" onclick="albumEditingId=null;renderAlbumsAdmin();">إلغاء</button>` : ''}
+    </div>`;
+  document.getElementById('admin-list').innerHTML = albums.length ? albums.map(a=>`
+    <div class="item-row">
+      <div class="thumb-sm"><img src="${a.cover || (a.photos && a.photos[0] ? a.photos[0].image : '')}" alt=""></div>
+      <div class="info"><h4>${a.name}</h4><span>${(a.photos||[]).length} صورة</span></div>
+      <div class="actions">
+        <button class="icon-action edit" onclick="albumsCurrentView=${a.id};renderAlbumsAdmin();">📂 الصور</button>
+        <button class="icon-action edit" onclick="albumEditingId=${a.id};renderAlbumsAdmin();">✎</button>
+        <button class="icon-action del" onclick="deleteAlbum(${a.id})">✕</button>
+      </div>
+    </div>`).join('') : '<div class="empty-note">لا يوجد ألبومات بعد — أنشئ أول ألبوم من الأعلى.</div>';
+}
+
+function saveAlbum(){
+  const name = document.getElementById('al-name').value.trim();
+  const cover = document.getElementById('al-cover').value.trim();
+  if(!name){ alert('خاصك تكتب اسم للألبوم'); return; }
+  const albums = getData('albums');
+  if(albumEditingId !== null){
+    const idx = albums.findIndex(a=>a.id===albumEditingId);
+    albums[idx] = {...albums[idx], name, cover};
+  } else {
+    albums.push({id: nextId(albums), name, cover, photos:[]});
+  }
+  setData('albums', albums);
+  albumEditingId = null;
+  renderAlbumsAdmin();
+}
+
+function deleteAlbum(id){
+  if(!confirm('هل تريد حذف هذا الألبوم وكل الصور اللي بداخله؟')) return;
+  setData('albums', getData('albums').filter(a=>a.id!==id));
+  renderAlbumsAdmin();
+}
+
+function renderAlbumPhotosAdmin(albumId){
+  const albums = getData('albums');
+  const album = albums.find(a=>a.id===albumId);
+  if(!album){ albumsCurrentView = null; return renderAlbumsAdmin(); }
+  document.getElementById('admin-form').innerHTML = `
+    <h3>📂 ${album.name} — إدارة المحتوى (صور وفيديوهات)</h3>
+    <div class="form-grid">
+      <div class="field full">
+        <label>نوع الوسائط</label>
+        <select id="ph-type" onchange="toggleAlbumMediaType()">
+          <option value="image">🖼️ صورة (يدعم GIF)</option>
+          <option value="video">🎬 فيديو</option>
+        </select>
+      </div>
+      <div class="field full" id="ph-image-row"><label>الصورة</label>${imageFieldHTML('ph-image','')}</div>
+      <div class="field full" id="ph-video-row" style="display:none;"><label>الفيديو (رابط يوتيوب/درايف أو ارفع ملف)</label>${videoFieldHTML('ph-video','')}</div>
+      <div class="field full"><label>نص مرافق (اختياري)</label><textarea id="ph-caption"></textarea></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn-gold" style="padding:11px 26px;" onclick="addMediaToAlbum(${albumId})">إضافة للألبوم</button>
+      <button class="btn-secondary" onclick="albumsCurrentView=null;renderAlbumsAdmin();">← رجوع لكل الألبومات</button>
+    </div>`;
+  const photos = album.photos || [];
+  document.getElementById('admin-list').innerHTML = photos.length ? photos.map(p=>{
+    const type = p.type || 'image';
+    const src = p.src || p.image || '';
+    const thumb = type==='video'
+      ? (isDirectVideoSrc(src) ? `<video src="${src}" muted></video>` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1410;color:var(--gold-bright);font-size:20px;">▶</div>`)
+      : `<img src="${src}" alt="">`;
+    return `<div class="item-row">
+      <div class="thumb-sm">${thumb}</div>
+      <div class="info"><h4>${p.caption || 'بدون نص'}</h4><span>${type==='video' ? '🎬 فيديو' : '🖼️ صورة'}</span></div>
+      <div class="actions">
+        <button class="icon-action del" onclick="deletePhotoFromAlbum(${albumId},${p.id})">✕</button>
+      </div>
+    </div>`;
+  }).join('') : '<div class="empty-note">لا يوجد محتوى فهاد الألبوم بعد — زيد أول صورة أو فيديو من الأعلى.</div>';
+}
+
+function toggleAlbumMediaType(){
+  const type = document.getElementById('ph-type').value;
+  document.getElementById('ph-image-row').style.display = type==='image' ? '' : 'none';
+  document.getElementById('ph-video-row').style.display = type==='video' ? '' : 'none';
+}
+
+function addMediaToAlbum(albumId){
+  const type = document.getElementById('ph-type').value;
+  const src = (type==='video' ? document.getElementById('ph-video').value : document.getElementById('ph-image').value).trim();
+  const caption = document.getElementById('ph-caption').value.trim();
+  if(!src){ alert(type==='video' ? 'اختر أو ارفع فيديو' : 'اختر أو ارفع صورة'); return; }
+  const albums = getData('albums');
+  const album = albums.find(a=>a.id===albumId);
+  const photos = album.photos || [];
+  photos.push({id: photos.length ? Math.max(...photos.map(p=>p.id))+1 : 1, type, src, caption});
+  album.photos = photos;
+  if(!album.cover && type==='image') album.cover = src;
+  setData('albums', albums);
+  renderAlbumPhotosAdmin(albumId);
+}
+
+function deletePhotoFromAlbum(albumId, photoId){
+  if(!confirm('حذف هذا العنصر من الألبوم؟')) return;
+  const albums = getData('albums');
+  const album = albums.find(a=>a.id===albumId);
+  album.photos = (album.photos||[]).filter(p=>p.id!==photoId);
+  setData('albums', albums);
+  renderAlbumPhotosAdmin(albumId);
 }
 
 /* ---------------- Init ---------------- */
