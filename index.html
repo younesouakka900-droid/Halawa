@@ -3,9 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>خلاوة | رحلة البحث عن النجوم الضائعة</title>
+<title>حلاوة | رحلة البحث عن النجوم الضائعة</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;900&family=Amiri:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --bg:#161210; --bg-soft:#1d1815; --card:#221c18; --card-hover:#2a231e;
@@ -86,6 +89,10 @@
   .video-card img{filter:brightness(.65);}
   .play-btn{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:56px;height:56px;border-radius:50%;background:rgba(212,169,79,.9);display:flex;align-items:center;justify-content:center;color:#1a1512;}
   .duration-tag{position:absolute;bottom:12px;left:12px;background:rgba(22,18,16,.85);font-size:12px;padding:4px 10px;border-radius:6px;color:var(--gold-bright);}
+  .filter-row{display:flex;gap:8px;flex-wrap:wrap;margin:-10px 0 18px;}
+  .filter-chip{background:var(--card);border:1px solid var(--border);color:var(--text-faint);font-size:13px;padding:6px 16px;border-radius:999px;cursor:pointer;transition:.2s;}
+  .filter-chip:hover{border-color:var(--gold);color:var(--gold-bright);}
+  .filter-chip.active{background:var(--gold);border-color:var(--gold);color:#1a1410;font-weight:700;}
   .video-caption{position:absolute;bottom:14px;right:16px;text-align:right;}
   .video-caption h4{font-size:14px;font-weight:700;color:var(--text);}
   .video-caption span{font-size:11px;color:var(--text-dim);}
@@ -214,15 +221,27 @@
   #lightbox iframe.portrait{width:min(400px,90vw);height:85vh;}
   #lightbox video.portrait{width:auto;height:85vh;max-width:90vw;}
   .lightbox-close{position:absolute;top:24px;left:32px;color:var(--gold-bright);font-size:26px;background:none;border:none;}
+
+  /* ---- Loading overlay ---- */
+  #loading-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999;flex-direction:column;gap:14px;}
+  #loading-overlay .logo{font-size:30px;color:var(--gold-bright);}
+  #loading-overlay .spinner{width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
 </style>
 </head>
 <body>
+
+<!-- ===================== LOADING OVERLAY ===================== -->
+<div id="loading-overlay">
+  <span class="logo">حلاوة</span>
+  <div class="spinner"></div>
+</div>
 
 <!-- ===================== PUBLIC VIEW ===================== -->
 <div id="view-public">
 <header>
   <div class="header-inner">
-    <div class="logo" id="site-logo" onclick="showView('public')">خلاوة</div>
+    <div class="logo" id="site-logo" onclick="showView('public')">حلاوة</div>
     <nav><ul id="nav-list"></ul></nav>
     <div class="header-right">
       <div class="search-box">
@@ -253,6 +272,7 @@
 
 <section id="section-articles">
   <h2 class="section-title">مقالات حديثة</h2>
+  <div class="filter-row" id="articles-filter"></div>
   <div class="recent-grid" id="articles-grid"></div>
 </section>
 
@@ -279,6 +299,7 @@
 
 <section>
   <h2 class="section-title">قصصات الفيديو</h2>
+  <div class="filter-row" id="videos-filter"></div>
   <div class="grid-2" id="videos-grid"></div>
 </section>
 
@@ -374,7 +395,7 @@
 <div id="view-admin" style="display:none;">
   <div class="admin-header">
     <div style="display:flex;align-items:center;">
-      <span class="logo">خلاوة</span>
+      <span class="logo">حلاوة</span>
       <span class="badge-admin">لوحة الأدمن</span>
     </div>
     <button class="logout-btn" onclick="doLogout()">تسجيل الخروج ←</button>
@@ -406,11 +427,20 @@
 </div>
 
 <script>
-/* ---------------- Data layer ---------------- */
-const ADMIN_USER = 'admin';
-const DEFAULT_ADMIN_PASS = 'halawa2026';
-function getAdminPass(){ return localStorage.getItem('halawa_admin_pass') || DEFAULT_ADMIN_PASS; }
+/* ---------------- Firebase setup ---------------- */
+const firebaseConfig = {
+  apiKey: "AIzaSyB7IMHCCjP4BTG5kBt9XvovecW8RVCXRVI",
+  authDomain: "halawa-3ac92.firebaseapp.com",
+  projectId: "halawa-3ac92",
+  storageBucket: "halawa-3ac92.firebasestorage.app",
+  messagingSenderId: "1057168891756",
+  appId: "1:1057168891756:web:8e30df8938fdd583b51d49"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
 
+/* ---------------- Data layer (Firestore-backed cache) ---------------- */
 const DEFAULTS = {
   stories: [
     {id:1,title:'صدى مدينة في الصحراء',excerpt:'يبحث الشاب البدوي عن العطش لكي يلامس المعنى الحقيقي لأصالة الصحراء ونبض الحياة فيها.',content:'يبحث الشاب البدوي عن العطش لكي يلامس المعنى الحقيقي لأصالة الصحراء ونبض الحياة فيها. في كل خطوة عبر الكثبان، يكتشف قصصاً قديمة نقشها الأجداد في الرمال والذاكرة، وتتكشف له أسرار المكان شيئاً فشيئاً.',tag:'ثقافة وتاريخ',image:'https://picsum.photos/seed/quran-book/500/400',readTime:'8 دقائق قراءة'},
@@ -433,6 +463,11 @@ const DEFAULTS = {
     {id:5,image:'https://picsum.photos/seed/art-5/300/300'},{id:6,image:'https://picsum.photos/seed/art-6/300/300'}
   ],
   albums: [],
+  users: [],
+  favorites: {},
+  comments: [],
+  views: {},
+  newsletter: [],
   hero: {
     title:'رحلة البحث عن<br>النجوم الضائعة',
     subtitle:'قصة غامرة تأخذك إلى قلب الصحراء والذات، في رحلة لا تُنسى بين الرمال والنجوم.',
@@ -440,22 +475,43 @@ const DEFAULTS = {
     buttonText:'اقرأ الآن ←'
   },
   header: {
-    logo:'خلاوة',
+    logo:'حلاوة',
     nav:['قصص مميزة','مقالات حديثة','فيديو','من نحن']
   },
   footer: {
-    links:['عن خلاوة','شروط الاستخدام','سياسة الخصوصية'],
+    links:['عن حلاوة','شروط الاستخدام','سياسة الخصوصية'],
     social:{facebook:'#',twitter:'#',instagram:'#',telegram:'#'}
   }
 };
 
-function getData(type){
-  const raw = localStorage.getItem('halawa_'+type);
-  if(raw) return JSON.parse(raw);
-  localStorage.setItem('halawa_'+type, JSON.stringify(DEFAULTS[type]));
-  return DEFAULTS[type];
+let CACHE = {};
+let CACHE_READY = false;
+
+async function loadAllData(){
+  const keys = Object.keys(DEFAULTS);
+  const snaps = await Promise.all(keys.map(k=>db.collection('content').doc(k).get()));
+  const migrations = [];
+  keys.forEach((k,i)=>{
+    const snap = snaps[i];
+    if(snap.exists){
+      CACHE[k] = snap.data().value;
+    } else {
+      CACHE[k] = DEFAULTS[k];
+      migrations.push(db.collection('content').doc(k).set({value: DEFAULTS[k]}));
+    }
+  });
+  if(migrations.length) await Promise.all(migrations).catch(e=>console.error('migration error', e));
+  CACHE_READY = true;
 }
-function setData(type, val){ localStorage.setItem('halawa_'+type, JSON.stringify(val)); }
+
+function getData(type){ return CACHE[type] !== undefined ? CACHE[type] : DEFAULTS[type]; }
+function setData(type, val){
+  CACHE[type] = val;
+  db.collection('content').doc(type).set({value: val}).catch(e=>{
+    console.error('Firestore write failed', type, e);
+    alert('تعذر حفظ التغييرات — تحقق من الاتصال بالإنترنت');
+  });
+}
 function nextId(arr){ return arr.length ? Math.max(...arr.map(i=>i.id))+1 : 1; }
 
 /* ---------------- View switching ---------------- */
@@ -463,6 +519,7 @@ let currentDetail = {type:null, id:null};
 let loginMode = 'reader-login';
 
 function showView(name){
+  if(name==='admin' && !auth.currentUser){ name = 'login'; loginMode = 'admin'; }
   ['public','login','admin','detail','account','album'].forEach(v=>{
     document.getElementById('view-'+v).style.display = (v===name) ? '' : 'none';
   });
@@ -472,26 +529,29 @@ function showView(name){
   if(name==='account') renderAccount();
   window.scrollTo(0,0);
 }
-function openLogin(mode){ loginMode = mode; showView('login'); }
-
-/* ---------------- Admin auth ---------------- */
-function doLogin(){
-  const u = document.getElementById('login-user').value.trim().toLowerCase();
-  const p = document.getElementById('login-pass').value;
-  const err = document.getElementById('login-error');
-  if(u===ADMIN_USER && p===getAdminPass()){
-    localStorage.setItem('halawa_auth','1');
-    showView('admin');
-  } else {
-    err.textContent = 'اسم المستخدم أو كلمة المرور غير صحيحة';
-    err.style.display = 'block';
-  }
+function openLogin(mode){
+  if(mode==='admin' && auth.currentUser){ showView('admin'); return; }
+  loginMode = mode; showView('login');
 }
-function doLogout(){ localStorage.removeItem('halawa_auth'); showView('public'); }
+
+/* ---------------- Admin auth (Firebase Auth) ---------------- */
+function doLogin(){
+  const email = document.getElementById('login-user').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  const err = document.getElementById('login-error');
+  err.style.display = 'none';
+  auth.signInWithEmailAndPassword(email, pass)
+    .then(()=> showView('admin'))
+    .catch(()=>{
+      err.textContent = 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
+      err.style.display = 'block';
+    });
+}
+function doLogout(){ auth.signOut().then(()=> showView('public')); }
 
 /* ---------------- Reader accounts ---------------- */
-function getUsers(){ return JSON.parse(localStorage.getItem('halawa_users')||'[]'); }
-function saveUsers(arr){ localStorage.setItem('halawa_users', JSON.stringify(arr)); }
+function getUsers(){ return getData('users'); }
+function saveUsers(arr){ setData('users', arr); }
 function getCurrentUser(){
   const email = localStorage.getItem('halawa_current_user');
   if(!email) return null;
@@ -527,9 +587,9 @@ function renderLoginCard(mode){
   const card = document.getElementById('login-card-content');
   if(mode==='admin'){
     card.innerHTML = `
-      <span class="logo">خلاوة</span>
+      <span class="logo">حلاوة</span>
       <p>دخول الأدمن فقط لإدارة محتوى الموقع</p>
-      <div class="field"><label>اسم المستخدم</label><input type="text" id="login-user" placeholder="admin" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+      <div class="field"><label>البريد الإلكتروني</label><input type="email" id="login-user" placeholder="admin@example.com" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
       <div class="field"><label>كلمة المرور</label><input type="password" id="login-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()"></div>
       <button class="btn-gold" onclick="doLogin()">دخول</button>
       <div class="login-error" id="login-error"></div>
@@ -537,7 +597,7 @@ function renderLoginCard(mode){
       <a class="back-link" href="#" onclick="showView('public');return false;">← العودة للموقع</a>`;
   } else if(mode==='reader-register'){
     card.innerHTML = `
-      <span class="logo">خلاوة</span>
+      <span class="logo">حلاوة</span>
       <div class="login-tabs">
         <button onclick="renderLoginCard('reader-login')">دخول</button>
         <button class="active">إنشاء حساب</button>
@@ -550,7 +610,7 @@ function renderLoginCard(mode){
       <a class="back-link" href="#" onclick="showView('public');return false;">← العودة للموقع</a>`;
   } else {
     card.innerHTML = `
-      <span class="logo">خلاوة</span>
+      <span class="logo">حلاوة</span>
       <div class="login-tabs">
         <button class="active">دخول</button>
         <button onclick="renderLoginCard('reader-register')">إنشاء حساب</button>
@@ -568,15 +628,15 @@ function renderLoginCard(mode){
 function getFavorites(){
   const user = getCurrentUser();
   if(!user) return [];
-  const all = JSON.parse(localStorage.getItem('halawa_favorites')||'{}');
+  const all = getData('favorites');
   return all[user.email] || [];
 }
 function setFavorites(list){
   const user = getCurrentUser();
   if(!user) return;
-  const all = JSON.parse(localStorage.getItem('halawa_favorites')||'{}');
+  const all = getData('favorites');
   all[user.email] = list;
-  localStorage.setItem('halawa_favorites', JSON.stringify(all));
+  setData('favorites', all);
 }
 function isFavorite(type,id){ return getFavorites().some(f=>f.type===type && f.id===id); }
 function toggleFavorite(type,id,event){
@@ -641,7 +701,7 @@ function copyLink(){
 
 /* ---------------- Comments ---------------- */
 function getComments(type,id){
-  return JSON.parse(localStorage.getItem('halawa_comments')||'[]').filter(c=>c.itemType===type && c.itemId===id);
+  return getData('comments').filter(c=>c.itemType===type && c.itemId===id);
 }
 function renderComments(type,id){
   const list = getComments(type,id);
@@ -655,23 +715,23 @@ function submitComment(type,id){
   const name = user ? user.name : document.getElementById('comment-name').value.trim();
   const text = document.getElementById('comment-text').value.trim();
   if(!name || !text){ alert('الرجاء كتابة الاسم والتعليق'); return; }
-  const all = JSON.parse(localStorage.getItem('halawa_comments')||'[]');
+  const all = getData('comments');
   all.push({id:Date.now(), itemType:type, itemId:id, name, text, date:new Date().toLocaleDateString('ar-EG')});
-  localStorage.setItem('halawa_comments', JSON.stringify(all));
+  setData('comments', all);
   document.getElementById('comment-text').value = '';
   renderComments(type,id);
 }
 
 /* ---------------- Detail view ---------------- */
 function getViews(type,id){
-  const all = JSON.parse(localStorage.getItem('halawa_views')||'{}');
+  const all = getData('views');
   return all[type+':'+id] || 0;
 }
 function incrementViews(type,id){
-  const all = JSON.parse(localStorage.getItem('halawa_views')||'{}');
+  const all = getData('views');
   const key = type+':'+id;
   all[key] = (all[key]||0) + 1;
-  localStorage.setItem('halawa_views', JSON.stringify(all));
+  setData('views', all);
   return all[key];
 }
 function renderRelated(type,id,tagOrCategory){
@@ -737,7 +797,7 @@ function openVideoLightbox(url){
     else embed = `<a href="${url}" target="_blank" style="color:#e8c579;">فتح الفيديو</a>`;
     openLightbox(embed); return;
   }
-  if(url.includes('drive.google.com')){
+  if(url.includes('drive.google.com') && !url.includes('export=download')){
     const idMatch = url.match(/\/d\/([\w-]+)/) || url.match(/[?&]id=([\w-]+)/);
     if(idMatch){
       openLightbox(`<iframe src="https://drive.google.com/file/d/${idMatch[1]}/preview" allow="autoplay" allowfullscreen></iframe>`);
@@ -756,6 +816,16 @@ function openVideoLightbox(url){
 }
 
 /* ---------------- Search ---------------- */
+let articleFilter = 'الكل';
+let videoFilter = 'الكل';
+function setArticleFilter(c){
+  articleFilter = c;
+  renderPublic(document.getElementById('search-input') ? document.getElementById('search-input').value.trim() : '');
+}
+function setVideoFilter(c){
+  videoFilter = c;
+  renderPublic(document.getElementById('search-input') ? document.getElementById('search-input').value.trim() : '');
+}
 function onSearch(){
   const q = document.getElementById('search-input').value.trim();
   document.getElementById('search-clear').style.display = q ? 'block' : 'none';
@@ -802,7 +872,10 @@ function renderPublic(query){
       </div>
     </div>`).join('') : '<div class="no-results">لا نتائج مطابقة</div>';
 
-  const articles = getData('articles').filter(a=>match(a.title));
+  const articles = getData('articles').filter(a=>match(a.title) && (articleFilter==='الكل' || a.category===articleFilter));
+  const articleCats = ['الكل', ...CATEGORIES.filter(c=>getData('articles').some(a=>a.category===c))];
+  document.getElementById('articles-filter').innerHTML = articleCats.map(c=>
+    `<button class="filter-chip ${c===articleFilter?'active':''}" onclick="setArticleFilter('${c.replace(/'/g,"\\'")}')">${c}</button>`).join('');
   document.getElementById('articles-grid').innerHTML = articles.length ? articles.map(a=>`
     <div class="article-row" onclick="openDetail('articles',${a.id})">
       <div class="thumb" style="position:relative;"><img src="${a.image}" alt="">
@@ -822,7 +895,10 @@ function renderPublic(query){
       <div class="body"><h3>${t.title}</h3><div class="meta">${t.readTime || t.category || ''}</div></div>
     </div>`).join('');
 
-  const videos = getData('videos');
+  const videos = getData('videos').filter(v=>videoFilter==='الكل' || v.category===videoFilter);
+  const videoCats = ['الكل', ...CATEGORIES.filter(c=>getData('videos').some(v=>v.category===c))];
+  document.getElementById('videos-filter').innerHTML = videoCats.map(c=>
+    `<button class="filter-chip ${c===videoFilter?'active':''}" onclick="setVideoFilter('${c.replace(/'/g,"\\'")}')">${c}</button>`).join('');
   document.getElementById('videos-grid').innerHTML = videos.map(v=>`
     <div class="video-card" id="vcard-${v.id}" onclick="openVideoLightbox('${(v.videoUrl||'').replace(/'/g,"\\'")}')">
       <img src="${v.image}" alt="">
@@ -862,7 +938,7 @@ function renderPublic(query){
 }
 
 function isDirectVideoSrc(src){
-  return !!src && (src.startsWith('data:video') || /\.(mp4|webm|ogg|mov)(\?|$)/i.test(src));
+  return !!src && (src.startsWith('data:video') || /\.(mp4|webm|ogg|mov)(\?|$)/i.test(src) || (src.includes('drive.google.com') && src.includes('export=download')));
 }
 
 function openAlbum(id){
@@ -891,13 +967,16 @@ function openAlbum(id){
   showView('album');
 }
 
+/* ---------------- Categories (تصنيفات موحدة) ---------------- */
+const CATEGORIES = ['عراكات','حوادث سير','جرائم','زلازل وكوارث','رعب','اقتصاد','علاقات','أخرى'];
+
 /* ---------------- Admin CRUD config ---------------- */
 const TAB_CONFIG = {
   stories: {
     label:'القصص المميزة',
     fields:[
       {key:'title',label:'العنوان',type:'text'},
-      {key:'tag',label:'التصنيف',type:'text'},
+      {key:'tag',label:'التصنيف',type:'select',options:CATEGORIES},
       {key:'readTime',label:'مدة القراءة',type:'text'},
       {key:'image',label:'صورة الغلاف',type:'image'},
       {key:'excerpt',label:'المقتطف (يظهر بالبطاقة)',type:'textarea',full:true},
@@ -909,7 +988,7 @@ const TAB_CONFIG = {
     label:'المقالات',
     fields:[
       {key:'title',label:'العنوان',type:'text',full:true},
-      {key:'category',label:'التصنيف',type:'text'},
+      {key:'category',label:'التصنيف',type:'select',options:CATEGORIES},
       {key:'author',label:'الكاتب',type:'text'},
       {key:'image',label:'صورة الغلاف',type:'image',full:true},
       {key:'content',label:'نص المقال الكامل',type:'textarea',full:true}
@@ -920,7 +999,7 @@ const TAB_CONFIG = {
     label:'مقاطع الفيديو',
     fields:[
       {key:'title',label:'العنوان',type:'text',full:true},
-      {key:'category',label:'التصنيف',type:'text'},
+      {key:'category',label:'التصنيف',type:'select',options:CATEGORIES},
       {key:'duration',label:'المدة (مثال 0:30)',type:'text'},
       {key:'videoUrl',label:'الفيديو (رابط يوتيوب/درايف أو ارفع ملف من جهازك)',type:'video'},
       {key:'image',label:'صورة الغلاف',type:'image',full:true}
@@ -955,9 +1034,15 @@ function switchTab(tab){
 }
 
 /* image field helper: text input + file upload -> base64 */
+/* تحويل رابط مشاركة Google Drive إلى رابط صورة مباشر يشتغل داخل <img> */
+function driveToDirectImage(url){
+  if(!url || !url.includes('drive.google.com')) return url;
+  const m = url.match(/\/d\/([\w-]+)/) || url.match(/[?&]id=([\w-]+)/);
+  return m ? `https://lh3.googleusercontent.com/d/${m[1]}` : url;
+}
 function imageFieldHTML(id, value){
   return `<div class="file-row">
-    <input type="text" id="${id}" value="${(value||'').replace(/"/g,'&quot;')}" placeholder="رابط الصورة أو ارفع من جهازك" style="flex:1;">
+    <input type="text" id="${id}" value="${(value||'').replace(/"/g,'&quot;')}" placeholder="الصق رابط Google Drive أو أي رابط صورة، أو ارفع من جهازك" style="flex:1;" onchange="this.value = driveToDirectImage(this.value);">
     <input type="file" accept="image/*" onchange="handleImageUpload(event,'${id}')">
   </div>`;
 }
@@ -1059,15 +1144,15 @@ function subscribeNewsletter(){
   const email = input.value.trim().toLowerCase();
   const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if(!re.test(email)){ msg.style.color='var(--danger)'; msg.textContent='الرجاء إدخال بريد إلكتروني صحيح'; return; }
-  const list = JSON.parse(localStorage.getItem('halawa_newsletter')||'[]');
+  const list = getData('newsletter');
   if(list.includes(email)){ msg.style.color='var(--gold-bright)'; msg.textContent='أنت مشترك بالفعل!'; return; }
   list.push(email);
-  localStorage.setItem('halawa_newsletter', JSON.stringify(list));
+  setData('newsletter', list);
   msg.style.color='var(--gold-bright)'; msg.textContent='تم الاشتراك بنجاح، شكراً لك!';
   input.value = '';
 }
 function renderNewsletterForm(){
-  const list = JSON.parse(localStorage.getItem('halawa_newsletter')||'[]');
+  const list = getData('newsletter');
   document.getElementById('admin-form').innerHTML = `
     <h3>مشتركو النشرة البريدية (${list.length})</h3>
     <div class="form-actions">
@@ -1081,12 +1166,12 @@ function renderNewsletterForm(){
 }
 function deleteSubscriber(email){
   if(!confirm('هل تريد حذف هذا المشترك؟')) return;
-  const list = JSON.parse(localStorage.getItem('halawa_newsletter')||'[]').filter(e=>e!==email);
-  localStorage.setItem('halawa_newsletter', JSON.stringify(list));
+  const list = getData('newsletter').filter(e=>e!==email);
+  setData('newsletter', list);
   renderNewsletterForm();
 }
 function exportNewsletter(){
-  const list = JSON.parse(localStorage.getItem('halawa_newsletter')||'[]');
+  const list = getData('newsletter');
   const blob = new Blob([['البريد الإلكتروني', ...list].join('\n')], {type:'text/csv'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -1120,12 +1205,21 @@ function saveSettings(){
   const cf = document.getElementById('s-confirm').value;
   const msg = document.getElementById('settings-msg');
   msg.style.color = 'var(--danger)';
-  if(cur !== getAdminPass()){ msg.textContent = 'كلمة المرور الحالية غير صحيحة'; return; }
+  const user = auth.currentUser;
+  if(!user){ msg.textContent = 'يجب تسجيل الدخول'; return; }
   if(nw.length < 6){ msg.textContent = 'كلمة المرور الجديدة يجب أن تكون 6 خانات على الأقل'; return; }
   if(nw !== cf){ msg.textContent = 'كلمة المرور الجديدة غير متطابقة'; return; }
-  localStorage.setItem('halawa_admin_pass', nw);
-  msg.style.color = 'var(--gold-bright)';
-  msg.textContent = 'تم تغيير كلمة المرور بنجاح';
+  const cred = firebase.auth.EmailAuthProvider.credential(user.email, cur);
+  user.reauthenticateWithCredential(cred)
+    .then(()=> user.updatePassword(nw))
+    .then(()=>{
+      msg.style.color = 'var(--gold-bright)';
+      msg.textContent = 'تم تغيير كلمة المرور بنجاح';
+      document.getElementById('s-current').value = '';
+      document.getElementById('s-new').value = '';
+      document.getElementById('s-confirm').value = '';
+    })
+    .catch(()=>{ msg.textContent = 'كلمة المرور الحالية غير صحيحة أو حدث خطأ'; });
 }
 function exportBackup(){
   const keys = ['stories','articles','videos','gallery','hero','header','footer'];
@@ -1166,6 +1260,7 @@ function renderAdminForm(){
         if(f.type==='image') return `<div class="field ${f.full?'full':''}"><label>${f.label}</label>${imageFieldHTML('f-'+f.key, val)}</div>`;
         if(f.type==='video') return `<div class="field ${f.full?'full':''}"><label>${f.label}</label>${videoFieldHTML('f-'+f.key, val)}</div>`;
         if(f.type==='textarea') return `<div class="field ${f.full?'full':''}"><label>${f.label}</label><textarea id="f-${f.key}">${val}</textarea></div>`;
+        if(f.type==='select') return `<div class="field ${f.full?'full':''}"><label>${f.label}</label><select id="f-${f.key}">${f.options.map(o=>`<option value="${o}" ${o===val?'selected':''}>${o}</option>`).join('')}</select></div>`;
         return `<div class="field ${f.full?'full':''}"><label>${f.label}</label><input type="text" id="f-${f.key}" value="${val.toString().replace(/"/g,'&quot;')}"></div>`;
       }).join('')}
     </div>
@@ -1346,7 +1441,18 @@ function deletePhotoFromAlbum(albumId, photoId){
 }
 
 /* ---------------- Init ---------------- */
-renderPublic();
+async function initApp(){
+  try{
+    await loadAllData();
+  }catch(e){
+    console.error('Failed to load data from Firestore', e);
+    alert('تعذر تحميل بيانات الموقع — تحقق من الاتصال بالإنترنت وأعد المحاولة');
+  }
+  document.getElementById('loading-overlay').style.display = 'none';
+  renderPublic();
+}
+auth.onAuthStateChanged(()=>{ /* keeps Firebase Auth session in sync */ });
+initApp();
 </script>
 
 <!-- Adsterra: Social Bar (SocialBar_1) - يخدم في كامل الموقع -->
