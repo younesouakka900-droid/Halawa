@@ -221,6 +221,15 @@
   #lightbox iframe.portrait{width:min(400px,90vw);height:85vh;}
   #lightbox video.portrait{width:auto;height:85vh;max-width:90vw;}
   .lightbox-close{position:absolute;top:24px;left:32px;color:var(--gold-bright);font-size:26px;background:none;border:none;}
+  .lightbox-nav{position:absolute;top:50%;transform:translateY(-50%);width:46px;height:46px;border-radius:50%;background:rgba(212,169,79,.15);border:1px solid var(--gold);color:var(--gold-bright);font-size:24px;display:flex;align-items:center;justify-content:center;z-index:5;transition:.2s;}
+  .lightbox-nav:hover{background:rgba(212,169,79,.35);}
+  .lightbox-nav.prev{right:-64px;}
+  .lightbox-nav.next{left:-64px;}
+  .lightbox-counter{color:var(--text-faint);font-size:12px;margin-top:10px;}
+  @media(max-width:900px){ .lightbox-nav.prev{right:4px;} .lightbox-nav.next{left:4px;} .lightbox-nav{background:rgba(10,8,6,.6);} }
+  .bulk-upload-box{margin-top:6px;padding-top:14px;border-top:1px dashed var(--border);}
+  .bulk-upload-box input[type="file"]{color:var(--text-dim);font-size:13px;}
+  .bulk-upload-box p{font-size:12px;color:var(--text-faint);margin-top:6px;}
 
   /* ---- Loading overlay ---- */
   #loading-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999;flex-direction:column;gap:14px;}
@@ -398,7 +407,10 @@
       <span class="logo">حلاوة</span>
       <span class="badge-admin">لوحة الأدمن</span>
     </div>
-    <button class="logout-btn" onclick="doLogout()">تسجيل الخروج ←</button>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <button class="btn-secondary" onclick="showView('public')">🏠 الصفحة الرئيسية</button>
+      <button class="logout-btn" onclick="doLogout()">تسجيل الخروج ←</button>
+    </div>
   </div>
   <div class="admin-body">
     <div class="admin-tabs">
@@ -517,6 +529,10 @@ function nextId(arr){ return arr.length ? Math.max(...arr.map(i=>i.id))+1 : 1; }
 /* ---------------- View switching ---------------- */
 let currentDetail = {type:null, id:null};
 let loginMode = 'reader-login';
+let currentGalleryMedia = [];
+let currentAlbumMedia = [];
+let mediaViewerItems = [];
+let mediaViewerIndex = 0;
 
 function showView(name){
   if(name==='admin' && !auth.currentUser){ name = 'login'; loginMode = 'admin'; }
@@ -771,48 +787,92 @@ function openDetail(type, id){
   updateDetailHeart(type,id);
 }
 
-/* ---------------- Lightbox ---------------- */
+/* ---------------- Lightbox / عارض الصور والفيديو ---------------- */
 function openLightbox(html){
   document.getElementById('lightbox-content').innerHTML = html;
   document.getElementById('lightbox').style.display = 'flex';
 }
-function closeLightbox(){ document.getElementById('lightbox').style.display = 'none'; document.getElementById('lightbox-content').innerHTML=''; }
-function openGalleryLightbox(src, caption){
-  const capHtml = caption ? `<p style="color:var(--text);font-size:15px;text-align:center;margin-top:14px;max-width:90vw;">${caption}</p>` : '';
-  openLightbox(`<div style="display:flex;flex-direction:column;align-items:center;"><img src="${src}" alt="">${capHtml}</div>`);
+function closeLightbox(){
+  document.getElementById('lightbox').style.display = 'none';
+  document.getElementById('lightbox-content').innerHTML='';
+  document.removeEventListener('keydown', mediaViewerKeyHandler);
+  mediaViewerItems = [];
 }
-function openVideoLightbox(url){
+/* يبني HTML للفيديو (يوتيوب/درايف/رابط مباشر) بدون فتح اللايتبوكس مباشرة، حتى نقدر نستعملو فالعارض المتعدد */
+function getVideoEmbedHTML(url){
   if(!url){
-    openLightbox(`<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;padding:40px 50px;text-align:center;max-width:340px;">
+    return `<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;padding:40px 50px;text-align:center;max-width:340px;">
       <div style="font-size:34px;margin-bottom:14px;">🎬</div>
       <p style="color:var(--text-dim);font-size:15px;">هذا الفيديو غير متوفر حالياً</p>
-    </div>`);
-    return;
+    </div>`;
   }
-  let embed = url;
   if(url.includes('youtube.com') || url.includes('youtu.be')){
     const isShorts = url.includes('/shorts/');
     const idMatch = url.match(/(?:v=|youtu\.be\/|shorts\/)([\w-]+)/);
-    if(idMatch) embed = `<iframe class="${isShorts?'portrait':''}" src="https://www.youtube.com/embed/${idMatch[1]}" allowfullscreen></iframe>`;
-    else embed = `<a href="${url}" target="_blank" style="color:#e8c579;">فتح الفيديو</a>`;
-    openLightbox(embed); return;
+    if(idMatch) return `<iframe class="${isShorts?'portrait':''}" src="https://www.youtube.com/embed/${idMatch[1]}" allowfullscreen></iframe>`;
+    return `<a href="${url}" target="_blank" style="color:#e8c579;">فتح الفيديو</a>`;
   }
   if(url.includes('drive.google.com') && !url.includes('export=download')){
     const idMatch = url.match(/\/d\/([\w-]+)/) || url.match(/[?&]id=([\w-]+)/);
-    if(idMatch){
-      openLightbox(`<iframe src="https://drive.google.com/file/d/${idMatch[1]}/preview" allow="autoplay" allowfullscreen></iframe>`);
-    } else {
-      openLightbox(`<a href="${url}" target="_blank" style="color:#e8c579;">فتح الفيديو</a>`);
-    }
-    return;
+    if(idMatch) return `<iframe src="https://drive.google.com/file/d/${idMatch[1]}/preview" allow="autoplay" allowfullscreen></iframe>`;
+    return `<a href="${url}" target="_blank" style="color:#e8c579;">فتح الفيديو</a>`;
   }
-  openLightbox(`<video src="${url}" controls autoplay></video>`);
+  return `<video src="${url}" controls autoplay></video>`;
+}
+function attachVideoPortraitCheck(){
   const vEl = document.querySelector('#lightbox-content video');
   if(vEl){
     vEl.addEventListener('loadedmetadata', ()=>{
       if(vEl.videoHeight > vEl.videoWidth) vEl.classList.add('portrait');
     });
   }
+}
+function openVideoLightbox(url){
+  openLightbox(getVideoEmbedHTML(url));
+  attachVideoPortraitCheck();
+}
+function openGalleryLightbox(src, caption){
+  const capHtml = caption ? `<p style="color:var(--text);font-size:15px;text-align:center;margin-top:14px;max-width:90vw;">${caption}</p>` : '';
+  openLightbox(`<div style="display:flex;flex-direction:column;align-items:center;"><img src="${src}" alt="">${capHtml}</div>`);
+}
+
+/* عارض الصور والفيديو المتعدد: كيقبل مصفوفة عناصر {type,src,caption} + index البداية، وكيعرض أزرار تنقل السابق/التالي */
+function openMediaViewer(items, index){
+  mediaViewerItems = items || [];
+  mediaViewerIndex = index || 0;
+  renderMediaViewer();
+  document.getElementById('lightbox').style.display = 'flex';
+  document.removeEventListener('keydown', mediaViewerKeyHandler);
+  document.addEventListener('keydown', mediaViewerKeyHandler);
+}
+function mediaViewerKeyHandler(e){
+  if(e.key === 'Escape') return closeLightbox();
+  if(e.key === 'ArrowRight') mediaViewerNav(-1);
+  if(e.key === 'ArrowLeft') mediaViewerNav(1);
+}
+function mediaViewerNav(dir){
+  if(!mediaViewerItems.length) return;
+  mediaViewerIndex = (mediaViewerIndex + dir + mediaViewerItems.length) % mediaViewerItems.length;
+  renderMediaViewer();
+}
+function renderMediaViewer(){
+  const item = mediaViewerItems[mediaViewerIndex];
+  if(!item) return;
+  const type = item.type || 'image';
+  const src = item.src || '';
+  const caption = item.caption || '';
+  const capHtml = caption ? `<p style="color:var(--text);font-size:15px;text-align:center;margin-top:14px;max-width:90vw;">${caption}</p>` : '';
+  const mediaHtml = type==='video' ? getVideoEmbedHTML(src) : `<img src="${src}" alt="">`;
+  const showNav = mediaViewerItems.length > 1;
+  document.getElementById('lightbox-content').innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;position:relative;">
+      ${showNav ? `<button class="lightbox-nav prev" onclick="event.stopPropagation();mediaViewerNav(-1)">‹</button>` : ''}
+      ${showNav ? `<button class="lightbox-nav next" onclick="event.stopPropagation();mediaViewerNav(1)">›</button>` : ''}
+      ${mediaHtml}
+      ${capHtml}
+      ${showNav ? `<div class="lightbox-counter">${mediaViewerIndex+1} / ${mediaViewerItems.length}</div>` : ''}
+    </div>`;
+  if(type==='video') attachVideoPortraitCheck();
 }
 
 /* ---------------- Search ---------------- */
@@ -919,8 +979,9 @@ function renderPublic(query){
   });
 
   const gallery = getData('gallery');
-  document.getElementById('gallery-grid').innerHTML = gallery.map(g=>`
-    <div class="gallery-item" onclick="openGalleryLightbox('${(g.image||'').replace(/'/g,"\\'")}','${(g.caption||'').replace(/'/g,"\\'")}')">
+  currentGalleryMedia = gallery.map(g=>({type:'image', src:g.image, caption:g.caption||''}));
+  document.getElementById('gallery-grid').innerHTML = gallery.map((g,i)=>`
+    <div class="gallery-item" onclick="openMediaViewer(currentGalleryMedia, ${i})">
       <img src="${g.image}" alt="">
       ${g.caption ? `<div class="gallery-caption">${g.caption}</div>` : ''}
     </div>`).join('');
@@ -946,21 +1007,22 @@ function openAlbum(id){
   if(!album) return;
   document.getElementById('album-title').textContent = album.name;
   document.getElementById('album-count').textContent = `${(album.photos||[]).length} عنصر`;
-  document.getElementById('album-photos-grid').innerHTML = (album.photos||[]).length ? album.photos.map(p=>{
+  const photos = album.photos || [];
+  currentAlbumMedia = photos.map(p=>({type: p.type || 'image', src: p.src || p.image || '', caption: p.caption || ''}));
+  document.getElementById('album-photos-grid').innerHTML = photos.length ? photos.map((p,i)=>{
     const type = p.type || 'image';
     const src = p.src || p.image || '';
     const caption = p.caption || '';
     const capHtml = caption ? `<div class="gallery-caption">${caption}</div>` : '';
     if(type==='video'){
-      const escSrc = src.replace(/'/g,"\\'");
       const thumb = isDirectVideoSrc(src)
         ? `<video src="${src}" muted preload="metadata"></video>`
         : `<div style="width:100%;height:100%;background:linear-gradient(135deg,#2a1f14,#1a1410);"></div>`;
-      return `<div class="gallery-item video-thumb" onclick="openVideoLightbox('${escSrc}')">
+      return `<div class="gallery-item video-thumb" onclick="openMediaViewer(currentAlbumMedia, ${i})">
         ${thumb}<span class="play-btn">▶</span>${capHtml}
       </div>`;
     }
-    return `<div class="gallery-item" onclick="openGalleryLightbox('${src.replace(/'/g,"\\'")}','${caption.replace(/'/g,"\\'")}')">
+    return `<div class="gallery-item" onclick="openMediaViewer(currentAlbumMedia, ${i})">
       <img src="${src}" alt="">${capHtml}
     </div>`;
   }).join('') : '<div class="no-results">لا يوجد محتوى بهاد الألبوم بعد</div>';
@@ -1070,6 +1132,16 @@ function handleVideoUpload(event, targetId){
   const reader = new FileReader();
   reader.onload = e => { document.getElementById(targetId).value = e.target.result; };
   reader.readAsDataURL(file);
+}
+
+/* رفع عدة صور دفعة واحدة: كتقرا كل الملفات المختارة وترجع مصفوفة base64 */
+function readMultipleImages(files){
+  return Promise.all(Array.from(files).map(file => new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  })));
 }
 
 function renderHeroForm(){
@@ -1267,7 +1339,27 @@ function renderAdminForm(){
     <div class="form-actions">
       <button class="btn-gold" style="padding:11px 26px;" onclick="saveItem()">${editing?'حفظ التعديل':'إضافة'}</button>
       ${editing ? `<button class="btn-secondary" onclick="editingId=null;renderAdminForm();">إلغاء</button>` : ''}
-    </div>`;
+    </div>
+    ${(!editing && currentTab==='gallery') ? `
+    <div class="bulk-upload-box">
+      <label>📤 أو حدد عدة صور دفعة واحدة (يمكن اختيار أكثر من صورة من نفس النافذة)</label>
+      <input type="file" accept="image/*" multiple onchange="handleBulkGalleryUpload(event)">
+      <p>غادي تتزاد كل الصور المختارة للمعرض دفعة وحدة بدون نص مرافق — تقدر تزيد النص بعدها من زر التعديل ✎.</p>
+    </div>` : ''}`;
+}
+
+function handleBulkGalleryUpload(event){
+  const files = event.target.files;
+  if(!files || !files.length) return;
+  readMultipleImages(files).then(dataUrls=>{
+    const arr = getData('gallery');
+    let id = nextId(arr);
+    dataUrls.forEach(dataUrl=>{ arr.push({id: id++, image: dataUrl, caption:''}); });
+    setData('gallery', arr);
+    renderAdminList();
+    alert(`تمت إضافة ${dataUrls.length} صورة للمعرض بنجاح ✅`);
+    event.target.value = '';
+  }).catch(()=> alert('وقع خطأ فقراءة بعض الصور، حاول مرة أخرى.'));
 }
 
 function saveItem(){
@@ -1392,6 +1484,11 @@ function renderAlbumPhotosAdmin(albumId){
     <div class="form-actions">
       <button class="btn-gold" style="padding:11px 26px;" onclick="addMediaToAlbum(${albumId})">إضافة للألبوم</button>
       <button class="btn-secondary" onclick="albumsCurrentView=null;renderAlbumsAdmin();">← رجوع لكل الألبومات</button>
+    </div>
+    <div class="bulk-upload-box">
+      <label>📤 أو حدد عدة صور دفعة واحدة لهاد الألبوم</label>
+      <input type="file" accept="image/*" multiple onchange="handleBulkAlbumUpload(event, ${albumId})">
+      <p>غادي تتزاد كل الصور المختارة للألبوم دفعة وحدة بدون نص مرافق.</p>
     </div>`;
   const photos = album.photos || [];
   document.getElementById('admin-list').innerHTML = photos.length ? photos.map(p=>{
@@ -1429,6 +1526,25 @@ function addMediaToAlbum(albumId){
   if(!album.cover && type==='image') album.cover = src;
   setData('albums', albums);
   renderAlbumPhotosAdmin(albumId);
+}
+
+function handleBulkAlbumUpload(event, albumId){
+  const files = event.target.files;
+  if(!files || !files.length) return;
+  readMultipleImages(files).then(dataUrls=>{
+    const albums = getData('albums');
+    const album = albums.find(a=>a.id===albumId);
+    if(!album) return;
+    const photos = album.photos || [];
+    let id = photos.length ? Math.max(...photos.map(p=>p.id))+1 : 1;
+    dataUrls.forEach(dataUrl=>{ photos.push({id: id++, type:'image', src: dataUrl, caption:''}); });
+    album.photos = photos;
+    if(!album.cover && dataUrls.length) album.cover = dataUrls[0];
+    setData('albums', albums);
+    renderAlbumPhotosAdmin(albumId);
+    alert(`تمت إضافة ${dataUrls.length} صورة للألبوم بنجاح ✅`);
+    event.target.value = '';
+  }).catch(()=> alert('وقع خطأ فقراءة بعض الصور، حاول مرة أخرى.'));
 }
 
 function deletePhotoFromAlbum(albumId, photoId){
