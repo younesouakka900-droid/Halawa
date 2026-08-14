@@ -550,12 +550,6 @@ function openLogin(mode){
   loginMode = mode; showView('login');
 }
 
-
-function isAdmin() {
-  const user = getCurrentUser();
-  return user && user.role === 'admin';
-}
-
 /* ---------------- Admin auth (Firebase Auth) ---------------- */
 function doLogin(){
   const email = document.getElementById('login-user').value.trim();
