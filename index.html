@@ -9,6 +9,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
   :root{
     --bg:#161210; --bg-soft:#1d1815; --card:#221c18; --card-hover:#2a231e;
@@ -450,7 +451,24 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e=>console.error('auth persistence error', e));
 const db = firebase.firestore();
+
+/* ---------------- Supabase setup (لتخزين الصور والفيديوهات فقط، بدل base64 داخل Firestore) ---------------- */
+const SUPABASE_URL = "https://rcebxdpvojfgxmqwqnyz.supabase.co";
+const SUPABASE_KEY = "sb_publishable_ZK8I7cq7K5Zh2ibfU90FRA_IAy3bpr-";
+const SUPABASE_BUCKET = "halawa-images";
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+/* يرفع ملف واحد لـ Supabase Storage ويرجع رابطه العام (Public URL) */
+async function uploadFileToSupabase(file, folder){
+  const ext = (file.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g,'') || 'bin';
+  const path = `${folder}/${Date.now()}_${Math.random().toString(36).slice(2,9)}.${ext}`;
+  const { error } = await supabaseClient.storage.from(SUPABASE_BUCKET).upload(path, file, { cacheControl: '31536000', upsert: false });
+  if(error) throw error;
+  const { data } = supabaseClient.storage.from(SUPABASE_BUCKET).getPublicUrl(path);
+  return data.publicUrl;
+}
 
 /* ---------------- Data layer (Firestore-backed cache) ---------------- */
 const DEFAULTS = {
@@ -1108,12 +1126,23 @@ function imageFieldHTML(id, value){
     <input type="file" accept="image/*" onchange="handleImageUpload(event,'${id}')">
   </div>`;
 }
-function handleImageUpload(event, targetId){
+async function handleImageUpload(event, targetId){
   const file = event.target.files[0];
   if(!file) return;
-  const reader = new FileReader();
-  reader.onload = e => { document.getElementById(targetId).value = e.target.result; };
-  reader.readAsDataURL(file);
+  const field = document.getElementById(targetId);
+  const prevValue = field.value;
+  field.value = 'جاري رفع الصورة...';
+  field.disabled = true;
+  try{
+    const url = await uploadFileToSupabase(file, 'gallery');
+    field.value = url;
+  }catch(e){
+    console.error('Supabase upload failed', e);
+    field.value = prevValue;
+    alert('تعذر رفع الصورة — تحقق من الاتصال بالإنترنت وحاول مرة أخرى');
+  }finally{
+    field.disabled = false;
+  }
 }
 
 /* video field helper: text input (رابط) + file upload -> base64، مع دعم الفيديو العمودي (شورتس) تلقائياً */
@@ -1123,25 +1152,28 @@ function videoFieldHTML(id, value){
     <input type="file" accept="video/*" onchange="handleVideoUpload(event,'${id}')">
   </div>`;
 }
-function handleVideoUpload(event, targetId){
+async function handleVideoUpload(event, targetId){
   const file = event.target.files[0];
   if(!file) return;
-  if(file.size > 15*1024*1024){
-    alert('الفيديو كبير (أكثر من 15 ميجا) — قد يبطّئ الموقع. يفضّل رفعه على يوتيوب ولصق الرابط بدل الرفع المباشر.');
+  const field = document.getElementById(targetId);
+  const prevValue = field.value;
+  field.value = 'جاري رفع الفيديو...';
+  field.disabled = true;
+  try{
+    const url = await uploadFileToSupabase(file, 'videos');
+    field.value = url;
+  }catch(e){
+    console.error('Supabase upload failed', e);
+    field.value = prevValue;
+    alert('تعذر رفع الفيديو — تحقق من الاتصال بالإنترنت وحاول مرة أخرى');
+  }finally{
+    field.disabled = false;
   }
-  const reader = new FileReader();
-  reader.onload = e => { document.getElementById(targetId).value = e.target.result; };
-  reader.readAsDataURL(file);
 }
 
-/* رفع عدة صور دفعة واحدة: كتقرا كل الملفات المختارة وترجع مصفوفة base64 */
-function readMultipleImages(files){
-  return Promise.all(Array.from(files).map(file => new Promise((resolve, reject)=>{
-    const reader = new FileReader();
-    reader.onload = e => resolve(e.target.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  })));
+/* رفع عدة صور دفعة واحدة: كترفع كل الملفات المختارة لـ Supabase وترجع مصفوفة روابط عامة (Public URLs) */
+function uploadMultipleImages(files, folder){
+  return Promise.all(Array.from(files).map(file => uploadFileToSupabase(file, folder)));
 }
 
 function renderHeroForm(){
@@ -1351,15 +1383,27 @@ function renderAdminForm(){
 function handleBulkGalleryUpload(event){
   const files = event.target.files;
   if(!files || !files.length) return;
-  readMultipleImages(files).then(dataUrls=>{
+  const input = event.target;
+  input.disabled = true;
+  const box = input.closest('.bulk-upload-box');
+  const statusEl = box ? box.querySelector('p') : null;
+  const prevStatus = statusEl ? statusEl.textContent : '';
+  if(statusEl) statusEl.textContent = `جاري رفع ${files.length} صورة...`;
+  uploadMultipleImages(files, 'gallery').then(urls=>{
     const arr = getData('gallery');
     let id = nextId(arr);
-    dataUrls.forEach(dataUrl=>{ arr.push({id: id++, image: dataUrl, caption:''}); });
+    urls.forEach(url=>{ arr.push({id: id++, image: url, caption:''}); });
     setData('gallery', arr);
     renderAdminList();
-    alert(`تمت إضافة ${dataUrls.length} صورة للمعرض بنجاح ✅`);
-    event.target.value = '';
-  }).catch(()=> alert('وقع خطأ فقراءة بعض الصور، حاول مرة أخرى.'));
+    alert(`تمت إضافة ${urls.length} صورة للمعرض بنجاح ✅`);
+  }).catch(e=>{
+    console.error('Supabase bulk upload failed', e);
+    alert('تعذر رفع بعض الصور — تحقق من الاتصال بالإنترنت وحاول مرة أخرى');
+  }).finally(()=>{
+    input.disabled = false;
+    input.value = '';
+    if(statusEl) statusEl.textContent = prevStatus;
+  });
 }
 
 function saveItem(){
@@ -1531,20 +1575,32 @@ function addMediaToAlbum(albumId){
 function handleBulkAlbumUpload(event, albumId){
   const files = event.target.files;
   if(!files || !files.length) return;
-  readMultipleImages(files).then(dataUrls=>{
+  const input = event.target;
+  input.disabled = true;
+  const box = input.closest('.bulk-upload-box');
+  const statusEl = box ? box.querySelector('p') : null;
+  const prevStatus = statusEl ? statusEl.textContent : '';
+  if(statusEl) statusEl.textContent = `جاري رفع ${files.length} صورة...`;
+  uploadMultipleImages(files, 'albums').then(urls=>{
     const albums = getData('albums');
     const album = albums.find(a=>a.id===albumId);
     if(!album) return;
     const photos = album.photos || [];
     let id = photos.length ? Math.max(...photos.map(p=>p.id))+1 : 1;
-    dataUrls.forEach(dataUrl=>{ photos.push({id: id++, type:'image', src: dataUrl, caption:''}); });
+    urls.forEach(url=>{ photos.push({id: id++, type:'image', src: url, caption:''}); });
     album.photos = photos;
-    if(!album.cover && dataUrls.length) album.cover = dataUrls[0];
+    if(!album.cover && urls.length) album.cover = urls[0];
     setData('albums', albums);
     renderAlbumPhotosAdmin(albumId);
-    alert(`تمت إضافة ${dataUrls.length} صورة للألبوم بنجاح ✅`);
-    event.target.value = '';
-  }).catch(()=> alert('وقع خطأ فقراءة بعض الصور، حاول مرة أخرى.'));
+    alert(`تمت إضافة ${urls.length} صورة للألبوم بنجاح ✅`);
+  }).catch(e=>{
+    console.error('Supabase bulk upload failed', e);
+    alert('تعذر رفع بعض الصور — تحقق من الاتصال بالإنترنت وحاول مرة أخرى');
+  }).finally(()=>{
+    input.disabled = false;
+    input.value = '';
+    if(statusEl) statusEl.textContent = prevStatus;
+  });
 }
 
 function deletePhotoFromAlbum(albumId, photoId){
