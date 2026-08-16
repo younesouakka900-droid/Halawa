@@ -569,6 +569,15 @@ let mediaViewerItems = [];
 let mediaViewerIndex = 0;
 
 function showView(name){
+  if(name==='admin' && !authReady){
+    // الجلسة لسا ما خلصت تسترجع من التخزين — ننتظر لحظة بدل ما نحكم بسرعة إنه مو مسجل دخول
+    document.getElementById('loading-overlay').style.display = '';
+    authReadyPromise.then(()=>{
+      document.getElementById('loading-overlay').style.display = 'none';
+      showView('admin');
+    });
+    return;
+  }
   if(name==='admin' && !auth.currentUser){ name = 'login'; loginMode = 'admin'; }
   ['public','login','admin','detail','account','album'].forEach(v=>{
     document.getElementById('view-'+v).style.display = (v===name) ? '' : 'none';
@@ -580,6 +589,14 @@ function showView(name){
   window.scrollTo(0,0);
 }
 function openLogin(mode){
+  if(mode==='admin' && !authReady){
+    document.getElementById('loading-overlay').style.display = '';
+    authReadyPromise.then(()=>{
+      document.getElementById('loading-overlay').style.display = 'none';
+      openLogin(mode);
+    });
+    return;
+  }
   if(mode==='admin' && auth.currentUser){ showView('admin'); return; }
   loginMode = mode; showView('login');
 }
@@ -1659,7 +1676,14 @@ async function initApp(){
   document.getElementById('loading-overlay').style.display = 'none';
   renderPublic();
 }
-auth.onAuthStateChanged(()=>{ /* keeps Firebase Auth session in sync */ });
+let authReady = false;
+const authReadyPromise = new Promise(resolve=>{
+  const unsub = auth.onAuthStateChanged(user=>{
+    authReady = true;
+    unsub();
+    resolve(user);
+  });
+});
 initApp();
 </script>
 
