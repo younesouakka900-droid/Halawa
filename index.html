@@ -460,8 +460,14 @@ const firebaseConfig = {
   appId: "1:1057168891756:web:8e30df8938fdd583b51d49"
 };
 firebase.initializeApp(firebaseConfig);
+let AUTH_PERSISTENCE_STATUS = 'جاري الفحص...';
 const auth = firebase.auth();
-auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e=>console.error('auth persistence error', e));
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(()=>{
+  AUTH_PERSISTENCE_STATUS = 'نجح ✅';
+}).catch(e=>{
+  AUTH_PERSISTENCE_STATUS = 'فشل ❌ (' + (e && e.message ? e.message : e) + ')';
+  console.error('auth persistence error', e);
+});
 const db = firebase.firestore();
 
 /* ---------------- Supabase setup (لتخزين الصور والفيديوهات فقط، بدل base64 داخل Firestore) ---------------- */
@@ -626,6 +632,24 @@ function doReaderLogin(){
 }
 function doReaderLogout(){ localStorage.removeItem('halawa_current_user'); showView('public'); }
 
+function runStorageDiagnostics(){
+  const el = document.getElementById('storage-diag');
+  if(!el) return;
+  const lines = [];
+  lines.push('indexedDB type: ' + (typeof window.indexedDB));
+  try{
+    localStorage.setItem('halawa_diag_test','1');
+    const readBack = localStorage.getItem('halawa_diag_test');
+    lines.push('localStorage: ' + (readBack==='1' ? 'يشتغل ✅' : 'لا يقرأ القيمة ❌'));
+    localStorage.removeItem('halawa_diag_test');
+  }catch(e){
+    lines.push('localStorage: فشل ❌ (' + e.message + ')');
+  }
+  lines.push('Firebase persistence: ' + AUTH_PERSISTENCE_STATUS);
+  lines.push('auth.currentUser الآن: ' + (auth.currentUser ? auth.currentUser.email : 'فارغ'));
+  el.textContent = lines.join(' | ');
+}
+
 function renderLoginCard(mode){
   loginMode = mode;
   const card = document.getElementById('login-card-content');
@@ -637,8 +661,10 @@ function renderLoginCard(mode){
       <div class="field"><label>كلمة المرور</label><input type="password" id="login-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()"></div>
       <button class="btn-gold" onclick="doLogin()">دخول</button>
       <div class="login-error" id="login-error"></div>
+      <div id="storage-diag" style="font-size:10px;color:#a89a8a;margin-top:10px;line-height:1.6;word-break:break-word;"></div>
       <a class="back-link" href="#" onclick="renderLoginCard('reader-login');return false;">دخول كقارئ بدلاً من ذلك</a>
       <a class="back-link" href="#" onclick="showView('public');return false;">← العودة للموقع</a>`;
+    setTimeout(runStorageDiagnostics, 50);
   } else if(mode==='reader-register'){
     card.innerHTML = `
       <span class="logo">حلاوة</span>
