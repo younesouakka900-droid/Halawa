@@ -317,7 +317,7 @@ try{
   <div class="scroll-row" id="trending-row"></div>
 </section>
 
-<section>
+<section id="section-videos">
   <h2 class="section-title">قصصات الفيديو</h2>
   <div class="filter-row" id="videos-filter"></div>
   <div class="grid-2" id="videos-grid"></div>
@@ -470,6 +470,24 @@ auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(()=>{
 });
 const db = firebase.firestore();
 
+/* التحقق من صلاحية الأدمن: بدل الاكتفاء بـ "مسجل دخول = أدمن" (خطر إلى صارت الحسابات مشتركة مع القراء)،
+   كنتأكدو أن الـ uid ديال المستخدم الحالي مطابق للـ uid المخزن فوثيقة content/adminAccess.
+   هاد الوثيقة خاصها تنبنى مرة وحدة يدوياً من Firebase Console (شوف تعليمات الأمان)، ومحمية بقواعد
+   Firestore باش حتى حساب ما يقدر يكتب فيها من المتصفح. */
+let isAdmin = false;
+async function checkIsAdmin(){
+  const u = auth.currentUser;
+  if(!u){ isAdmin = false; return false; }
+  try{
+    const snap = await db.collection('content').doc('adminAccess').get();
+    isAdmin = !!(snap.exists && snap.data().uid === u.uid);
+  }catch(e){
+    console.error('admin check failed', e);
+    isAdmin = false;
+  }
+  return isAdmin;
+}
+
 /* ---------------- Supabase setup (لتخزين الصور والفيديوهات فقط، بدل base64 داخل Firestore) ---------------- */
 const SUPABASE_URL = "https://rcebxdpvojfgxmqwqnyz.supabase.co";
 const SUPABASE_KEY = "sb_publishable_ZK8I7cq7K5Zh2ibfU90FRA_IAy3bpr-";
@@ -509,7 +527,6 @@ const DEFAULTS = {
     {id:5,image:'https://picsum.photos/seed/art-5/300/300'},{id:6,image:'https://picsum.photos/seed/art-6/300/300'}
   ],
   albums: [],
-  users: [],
   favorites: {},
   comments: [],
   views: {},
@@ -533,8 +550,9 @@ const DEFAULTS = {
 let CACHE = {};
 let CACHE_READY = false;
 
+const LAZY_KEYS = ['newsletter']; // كنحملوها فقط عند الحاجة (لوحة الأدمن أو الاشتراك) باش ما تنبعثش لكل زوار الموقع
 async function loadAllData(){
-  const keys = Object.keys(DEFAULTS);
+  const keys = Object.keys(DEFAULTS).filter(k=>!LAZY_KEYS.includes(k));
   const snaps = await Promise.all(keys.map(k=>db.collection('content').doc(k).get()));
   const migrations = [];
   keys.forEach((k,i)=>{
@@ -550,6 +568,16 @@ async function loadAllData(){
   CACHE_READY = true;
 }
 
+async function loadNewsletterIfNeeded(){
+  if(CACHE.newsletter !== undefined) return;
+  const snap = await db.collection('content').doc('newsletter').get();
+  if(snap.exists){
+    CACHE.newsletter = snap.data().value;
+  } else {
+    CACHE.newsletter = DEFAULTS.newsletter;
+    await db.collection('content').doc('newsletter').set({value: DEFAULTS.newsletter}).catch(e=>console.error('newsletter init failed', e));
+  }
+}
 function getData(type){ return CACHE[type] !== undefined ? CACHE[type] : DEFAULTS[type]; }
 function setData(type, val){
   CACHE[type] = val;
@@ -578,7 +606,7 @@ function showView(name){
     });
     return;
   }
-  if(name==='admin' && !auth.currentUser){ name = 'login'; loginMode = 'admin'; }
+  if(name==='admin' && (!auth.currentUser || !isAdmin)){ name = 'login'; loginMode = 'admin'; }
   ['public','login','admin','detail','account','album'].forEach(v=>{
     document.getElementById('view-'+v).style.display = (v===name) ? '' : 'none';
   });
@@ -597,7 +625,7 @@ function openLogin(mode){
     });
     return;
   }
-  if(mode==='admin' && auth.currentUser){ showView('admin'); return; }
+  if(mode==='admin' && auth.currentUser && isAdmin){ showView('admin'); return; }
   loginMode = mode; showView('login');
 }
 
@@ -608,21 +636,27 @@ function doLogin(){
   const err = document.getElementById('login-error');
   err.style.display = 'none';
   auth.signInWithEmailAndPassword(email, pass)
-    .then(()=> showView('admin'))
+    .then(()=> checkIsAdmin())
+    .then(admin=>{
+      if(admin){ showView('admin'); }
+      else{
+        auth.signOut();
+        err.textContent = 'هذا الحساب ليس حساب أدمن';
+        err.style.display = 'block';
+      }
+    })
     .catch(()=>{
       err.textContent = 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
       err.style.display = 'block';
     });
 }
-function doLogout(){ auth.signOut().then(()=> showView('public')); }
+function doLogout(){ auth.signOut().then(()=>{ isAdmin = false; showView('public'); }); }
 
-/* ---------------- Reader accounts ---------------- */
-function getUsers(){ return getData('users'); }
-function saveUsers(arr){ setData('users', arr); }
+/* ---------------- Reader accounts (Firebase Auth الحقيقي — ما كنخزنوش أي باسوورد يدنا) ---------------- */
 function getCurrentUser(){
-  const email = localStorage.getItem('halawa_current_user');
-  if(!email) return null;
-  return getUsers().find(u=>u.email===email) || null;
+  const u = auth.currentUser;
+  if(!u || isAdmin) return null; // حساب الأدمن ما كيتعاملش معاه كقارئ فالواجهة العامة
+  return { name: u.displayName || (u.email ? u.email.split('@')[0] : 'قارئ'), email: u.email };
 }
 function doRegister(){
   const name = document.getElementById('reg-name').value.trim();
@@ -630,24 +664,27 @@ function doRegister(){
   const pass = document.getElementById('reg-pass').value;
   const err = document.getElementById('login-error');
   err.style.display = 'none';
-  if(!name || !email || pass.length<4){ err.textContent='الرجاء تعبئة كل الحقول (كلمة مرور 4 خانات على الأقل)'; err.style.display='block'; return; }
-  const users = getUsers();
-  if(users.some(u=>u.email===email)){ err.textContent='هذا البريد مستخدم بالفعل'; err.style.display='block'; return; }
-  users.push({name,email,pass});
-  saveUsers(users);
-  localStorage.setItem('halawa_current_user', email);
-  showView('public');
+  if(!name || !email || pass.length<6){ err.textContent='الرجاء تعبئة كل الحقول (كلمة مرور 6 خانات على الأقل)'; err.style.display='block'; return; }
+  auth.createUserWithEmailAndPassword(email, pass)
+    .then(cred => cred.user.updateProfile({displayName: name}))
+    .then(()=> checkIsAdmin())
+    .then(()=> showView('public'))
+    .catch(e=>{
+      err.textContent = e && e.code==='auth/email-already-in-use' ? 'هذا البريد مستخدم بالفعل' : 'تعذر إنشاء الحساب — تحقق من البيانات والاتصال';
+      err.style.display = 'block';
+    });
 }
 function doReaderLogin(){
   const email = document.getElementById('reader-email').value.trim().toLowerCase();
   const pass = document.getElementById('reader-pass').value;
   const err = document.getElementById('login-error');
-  const user = getUsers().find(u=>u.email===email && u.pass===pass);
-  if(!user){ err.textContent='البريد أو كلمة المرور غير صحيحة'; err.style.display='block'; return; }
-  localStorage.setItem('halawa_current_user', email);
-  showView('public');
+  err.style.display = 'none';
+  auth.signInWithEmailAndPassword(email, pass)
+    .then(()=> checkIsAdmin())
+    .then(()=> showView('public'))
+    .catch(()=>{ err.textContent='البريد أو كلمة المرور غير صحيحة'; err.style.display='block'; });
 }
-function doReaderLogout(){ localStorage.removeItem('halawa_current_user'); showView('public'); }
+function doReaderLogout(){ auth.signOut().then(()=>{ isAdmin = false; showView('public'); }); }
 
 function runStorageDiagnostics(){
   const el = document.getElementById('storage-diag');
@@ -968,12 +1005,20 @@ function clearSearch(){
   renderPublic();
 }
 
+/* روابط القائمة العلوية: كل عنصر مربوط بموقعه فالصفحة حسب ترتيبه (نفس الترتيب لي كيتخزن فـ header.nav) */
+const NAV_SCROLL_TARGETS = ['section-stories','section-articles','section-videos', null];
+function scrollToSection(index){
+  const id = NAV_SCROLL_TARGETS[index];
+  const el = id ? document.getElementById(id) : document.querySelector('footer');
+  if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
 /* ---------------- Public render ---------------- */
 function renderPublic(query){
   renderAccountArea();
   const header = getData('header');
   document.getElementById('site-logo').textContent = header.logo;
-  document.getElementById('nav-list').innerHTML = header.nav.map((n,i)=>`<li><a class="${i===0?'active':''}">${n}</a></li>`).join('');
+  document.getElementById('nav-list').innerHTML = header.nav.map((n,i)=>`<li><a class="${i===0?'active':''}" href="#" onclick="scrollToSection(${i});return false;">${n}</a></li>`).join('');
 
   const footer = getData('footer');
   document.getElementById('footer-links').innerHTML = footer.links.map(l=>`<span>${l}</span>`).join('') +
@@ -1159,7 +1204,7 @@ function switchTab(tab){
   if(tab==='hero') return renderHeroForm();
   if(tab==='header') return renderHeaderForm();
   if(tab==='footer') return renderFooterForm();
-  if(tab==='newsletter') return renderNewsletterForm();
+  if(tab==='newsletter'){ loadNewsletterIfNeeded().then(renderNewsletterForm); return; }
   if(tab==='settings') return renderSettingsForm();
   if(tab==='albums'){ albumsCurrentView = null; albumEditingId = null; return renderAlbumsAdmin(); }
   renderAdminForm();
@@ -1295,12 +1340,13 @@ function saveFooter(){
 }
 
 /* ---------------- Newsletter ---------------- */
-function subscribeNewsletter(){
+async function subscribeNewsletter(){
   const input = document.getElementById('newsletter-email');
   const msg = document.getElementById('newsletter-msg');
   const email = input.value.trim().toLowerCase();
   const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if(!re.test(email)){ msg.style.color='var(--danger)'; msg.textContent='الرجاء إدخال بريد إلكتروني صحيح'; return; }
+  await loadNewsletterIfNeeded();
   const list = getData('newsletter');
   if(list.includes(email)){ msg.style.color='var(--gold-bright)'; msg.textContent='أنت مشترك بالفعل!'; return; }
   list.push(email);
@@ -1379,7 +1425,7 @@ function saveSettings(){
     .catch(()=>{ msg.textContent = 'كلمة المرور الحالية غير صحيحة أو حدث خطأ'; });
 }
 function exportBackup(){
-  const keys = ['stories','articles','videos','gallery','hero','header','footer'];
+  const keys = ['stories','articles','videos','gallery','albums','hero','header','footer','comments','views'];
   const data = {}; keys.forEach(k=>data[k]=getData(k));
   const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
   const a = document.createElement('a');
@@ -1673,12 +1719,14 @@ async function initApp(){
     console.error('Failed to load data from Firestore', e);
     alert('تعذر تحميل بيانات الموقع — تحقق من الاتصال بالإنترنت وأعد المحاولة');
   }
+  await authReadyPromise;
   document.getElementById('loading-overlay').style.display = 'none';
   renderPublic();
 }
 let authReady = false;
 const authReadyPromise = new Promise(resolve=>{
-  const unsub = auth.onAuthStateChanged(user=>{
+  const unsub = auth.onAuthStateChanged(async user=>{
+    await checkIsAdmin();
     authReady = true;
     unsub();
     resolve(user);
