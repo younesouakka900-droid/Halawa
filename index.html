@@ -441,6 +441,15 @@
 
 <script>
 /* ---------------- Firebase setup ---------------- */
+/* بعض متصفحات أندرويد (خصوصاً بوضع توفير البيانات) "تدّعي" دعم IndexedDB لكنها لا تحفظ فيه بشكل موثوق،
+   بينما localStorage يشتغل عندها بشكل سليم (وهذا نفس النظام المستخدم لحساب القارئ وهو ثابت).
+   نخفي IndexedDB عن Firebase قبل التهيئة حتى يستعمل تلقائياً localStorage بدل ما يعتمد على IndexedDB غير الموثوق. */
+try{
+  if(window.indexedDB){
+    Object.defineProperty(window, 'indexedDB', { value: undefined, configurable: true });
+  }
+}catch(e){ console.warn('could not disable unreliable indexedDB fallback', e); }
+
 const firebaseConfig = {
   apiKey: "AIzaSyB7IMHCCjP4BTG5kBt9XvovecW8RVCXRVI",
   authDomain: "halawa-3ac92.firebaseapp.com",
